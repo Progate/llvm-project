@@ -164,6 +164,13 @@ void wasm::Linker::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back("--shared-memory");
 
   if (!Args.hasArg(options::OPT_nostdlib, options::OPT_nodefaultlibs)) {
+    // As on other targets (see tools::gnutools::Linker::ConstructJob), the
+    // flang driver links the Fortran runtime and libm.
+    if (ToolChain.getDriver().IsFlangMode()) {
+      ToolChain.addFortranRuntimeLibraryPath(Args, CmdArgs);
+      ToolChain.addFortranRuntimeLibs(Args, CmdArgs);
+      CmdArgs.push_back("-lm");
+    }
     if (ToolChain.ShouldLinkCXXStdlib(Args))
       ToolChain.AddCXXStdlibLibArgs(Args, CmdArgs);
 
