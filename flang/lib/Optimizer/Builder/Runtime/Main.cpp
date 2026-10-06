@@ -15,6 +15,7 @@
 #include "flang/Optimizer/Dialect/FIROps.h"
 #include "flang/Optimizer/Dialect/FIRType.h"
 #include "flang/Optimizer/Dialect/MIF/MIFOps.h"
+#include "flang/Optimizer/Dialect/Support/FIRContext.h"
 #include "flang/Runtime/CUDA/init.h"
 #include "flang/Runtime/main.h"
 #include "flang/Runtime/stop.h"
@@ -41,9 +42,18 @@ void fir::runtime::genMain(
                              mlir::FunctionType::get(context, {}, {}));
 
   // int main(int argc, char** argv, char** envp)
+  //
+  // On WebAssembly, the C ABI calls a main that takes arguments by the name
+  // __main_argc_argv with exactly (argc, argv), as clang names it, and a call
+  // to a function of a different type traps. The runtime reads the
+  // environment from `environ` rather than from envp, so pass no envp there.
+  const bool isWasm = fir::getTargetTriple(builder.getModule()).isWasm();
+  llvm::SmallVector<mlir::Type> mainArgTys{argcTy, ptrTy};
+  if (!isWasm)
+    mainArgTys.push_back(ptrTy);
   auto mainFn = builder.createFunction(
-      loc, "main",
-      mlir::FunctionType::get(context, {argcTy, ptrTy, ptrTy}, argcTy));
+      loc, isWasm ? "__main_argc_argv" : "main",
+      mlir::FunctionType::get(context, mainArgTys, argcTy));
   // void _QQmain()
   auto qqMainFn = builder.createFunction(
       loc, "_QQmain", mlir::FunctionType::get(context, {}, {}));
@@ -61,6 +71,8 @@ void fir::runtime::genMain(
   auto env = fir::runtime::genEnvironmentDefaults(builder, loc, defs);
 
   llvm::SmallVector<mlir::Value, 4> args(block->getArguments());
+  if (isWasm)
+    args.push_back(fir::ZeroOp::create(builder, loc, ptrTy));
   args.push_back(env);
 
   fir::CallOp::create(builder, loc, startFn, args);
