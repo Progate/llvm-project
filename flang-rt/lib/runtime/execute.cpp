@@ -25,6 +25,10 @@
 #include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#if defined(__wasi__) && __has_include(<spawn.h>)
+#include <spawn.h>
+extern char **environ;
+#endif
 #endif
 
 namespace Fortran::runtime {
@@ -267,6 +271,33 @@ void RTNAME(ExecuteCommandLine)(const Descriptor &command, bool wait,
       }
     }
     FreeMemory(wcmd);
+#elif defined(__wasi__)
+    // WASI has no fork(). Where the C library provides posix_spawn(), start
+    // the shell directly; otherwise report that asynchronous execution is not
+    // supported.
+#if __has_include(<spawn.h>)
+    char shell[]{"sh"};
+    char dashC[]{"-c"};
+    char *argv[]{shell, dashC, newCmd, nullptr};
+    pid_t pid;
+    if (int error{posix_spawn(&pid, "/bin/sh", nullptr, nullptr, argv, environ)};
+        error != 0) {
+      if (!cmdstat) {
+        terminator.Crash("posix_spawn failed with error: %d.", error);
+      } else {
+        StoreIntToDescriptor(cmdstat, FORK_ERR, terminator);
+        CheckAndCopyCharsToDescriptor(cmdmsg, "posix_spawn failed");
+      }
+    }
+#else
+    if (!cmdstat) {
+      terminator.Crash("Asynchronous execution is not supported on WASI.");
+    } else {
+      StoreIntToDescriptor(cmdstat, ASYNC_NO_SUPPORT_ERR, terminator);
+      CheckAndCopyCharsToDescriptor(
+          cmdmsg, "Asynchronous execution is not supported on WASI.");
+    }
+#endif
 #else
     // Flush all the output streams before fork() in order to avoid parent's
     // buffered output to be replicated on the child. (Note: the issue of
