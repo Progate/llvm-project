@@ -54,6 +54,13 @@ protected:
                           mlir::Type ty, mlir::Value val,
                           bool fold = false) const;
 
+  /// Convert an integer field read from a descriptor to \p resultTy. The
+  /// fields have the widths of the C types in ISO_Fortran_binding.h, which
+  /// can differ from the requested type (for example on 32-bit targets).
+  mlir::Value castBoxField(mlir::Location loc,
+                           mlir::ConversionPatternRewriter &rewriter,
+                           mlir::Type resultTy, mlir::Value field) const;
+
   struct TypePair {
     mlir::Type fir;
     mlir::Type llvm;
