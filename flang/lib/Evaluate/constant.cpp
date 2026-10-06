@@ -320,7 +320,8 @@ std::size_t Constant<Type<TypeCategory::Character, KIND>>::CopyFrom(
     return count;
   } else {
     std::size_t copied{0};
-    std::size_t elementBytes{length_ * sizeof(decltype(values_[0]))};
+    std::size_t elementBytes{
+        static_cast<std::size_t>(length_) * sizeof(decltype(values_[0]))};
     ConstantSubscripts sourceSubscripts{source.lbounds()};
     while (copied < count) {
       auto *dest{&values_.at(SubscriptsToOffset(resultSubscripts) * length_)};
