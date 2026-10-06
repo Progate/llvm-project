@@ -774,7 +774,10 @@ struct AssumedSizeExtentOpConversion
   matchAndRewrite(fir::AssumedSizeExtentOp op, OpAdaptor,
                   mlir::ConversionPatternRewriter &rewriter) const override {
     mlir::Location loc = op.getLoc();
-    mlir::Type ity = lowerTy().indexType();
+    // The result replaces a value of `index` type, which is lowered to an
+    // integer of the target's index width (32 bits on 32-bit targets), not to
+    // the i64 of lowerTy().indexType().
+    mlir::Type ity = convertType(op.getType());
     auto cst = fir::genConstantIndex(loc, ity, rewriter, -1);
     rewriter.replaceOp(op, cst.getResult());
     return mlir::success();
