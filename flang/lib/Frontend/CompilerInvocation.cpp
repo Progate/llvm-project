@@ -1941,7 +1941,10 @@ void CompilerInvocation::setFortranOpts() {
       preprocessorOptions.searchDirectoriesFromIntrModPath.begin(),
       preprocessorOptions.searchDirectoriesFromIntrModPath.end());
 
-  // Add the ordered list of -fintrinsic-modules-path
+  // Directories given by -fintrinsic-modules-path are also searched for
+  // modules named in USE, INTRINSIC, ahead of the default one, as gfortran
+  // does. Otherwise USE, INTRINSIC could only ever find the default directory
+  // next to the driver executable.
   fortranOptions.intrinsicModuleDirectories.insert(
       fortranOptions.intrinsicModuleDirectories.end(),
       preprocessorOptions.searchDirectoriesFromIntrModPath.begin(),
