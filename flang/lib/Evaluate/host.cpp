@@ -89,6 +89,7 @@ void HostFloatingPointEnvironment::SetUpHostFloatingPointEnvironment(
   case common::RoundingMode::TiesToEven:
     fesetround(FE_TONEAREST);
     break;
+#if defined(FE_TOWARDZERO) && defined(FE_UPWARD) && defined(FE_DOWNWARD)
   case common::RoundingMode::ToZero:
     fesetround(FE_TOWARDZERO);
     break;
@@ -98,6 +99,16 @@ void HostFloatingPointEnvironment::SetUpHostFloatingPointEnvironment(
   case common::RoundingMode::Down:
     fesetround(FE_DOWNWARD);
     break;
+#else
+  // Some hosts, such as WebAssembly, only support rounding to nearest.
+  case common::RoundingMode::ToZero:
+  case common::RoundingMode::Up:
+  case common::RoundingMode::Down:
+    fesetround(FE_TONEAREST);
+    context.Warn(common::UsageWarning::FoldingFailure,
+        "Directed rounding modes are not available when folding constants with host runtime; using TiesToEven instead"_warn_en_US);
+    break;
+#endif
   case common::RoundingMode::TiesAwayFromZero:
     fesetround(FE_TONEAREST);
     context.Warn(common::UsageWarning::FoldingFailure,
@@ -110,6 +121,8 @@ void HostFloatingPointEnvironment::SetUpHostFloatingPointEnvironment(
 void HostFloatingPointEnvironment::CheckAndRestoreFloatingPointEnvironment(
     FoldingContext &context) {
   int errnoCapture{errno};
+#if defined(FE_INVALID) && defined(FE_DIVBYZERO) && defined(FE_OVERFLOW) && \
+    defined(FE_UNDERFLOW) && defined(FE_INEXACT)
   if (hardwareFlagsAreReliable()) {
     int exceptions{fetestexcept(FE_ALL_EXCEPT)};
     if (exceptions & FE_INVALID) {
@@ -128,6 +141,7 @@ void HostFloatingPointEnvironment::CheckAndRestoreFloatingPointEnvironment(
       flags_.set(RealFlag::Inexact);
     }
   }
+#endif
 
   if (flags_.empty()) {
     if (errnoCapture == EDOM) {

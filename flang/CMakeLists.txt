@@ -69,7 +69,9 @@ if (MSVC AND CMAKE_CXX_COMPILER_ID MATCHES Clang)
   endif()
 endif()
 
-if(CMAKE_SIZEOF_VOID_P EQUAL 4)
+# WebAssembly (WASI) hosts are 32-bit. Allow them so that flang itself can be
+# built to run inside a WebAssembly runtime.
+if(CMAKE_SIZEOF_VOID_P EQUAL 4 AND NOT CMAKE_SYSTEM_NAME STREQUAL "WASI")
   message(FATAL_ERROR "flang isn't supported on 32 bit CPUs")
 endif()
 
