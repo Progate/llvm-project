@@ -54,7 +54,8 @@ struct FixupTy {
     ReturnType,
     Split,
     Trailing,
-    TrailingCharProc
+    TrailingCharProc,
+    CharBufferOnly
   };
 
   FixupTy(Codes code, std::size_t index, std::size_t second = 0)
@@ -450,7 +451,9 @@ public:
               auto attr =
                   std::get<fir::CodeGenSpecifics::Attributes>(e.value());
               auto argTy = std::get<mlir::Type>(e.value());
-              if (attr.isAppend()) {
+              if (attr.isAppend() && passesNoCharacterLength(callOp)) {
+                continue;
+              } else if (attr.isAppend()) {
                 trailingInTys.push_back(argTy);
                 trailingOpers.push_back(unbox.getResult(idx));
               } else {
@@ -719,6 +722,9 @@ public:
           .Default([&](mlir::Type ty) { newResTys.push_back(ty); });
     }
     llvm::SmallVector<mlir::Type> trailingInTys;
+    auto func =
+        getModule().lookupSymbol<mlir::func::FuncOp>(addrOp.getSymbol());
+    const bool noCharacterLength = func && passesNoCharacterLength(func);
     for (mlir::Type ty : addrTy.getInputs()) {
       llvm::TypeSwitch<mlir::Type>(ty)
           .Case([&](fir::BoxCharType box) {
@@ -729,6 +735,8 @@ public:
               for (auto &tup : specifics->boxcharArgumentType(box.getEleTy())) {
                 auto attr = std::get<fir::CodeGenSpecifics::Attributes>(tup);
                 auto argTy = std::get<mlir::Type>(tup);
+                if (attr.isAppend() && noCharacterLength)
+                  continue;
                 if (attr.isAppend())
                   trailingInTys.push_back(argTy);
                 else
@@ -805,6 +813,16 @@ public:
   }
 
   // Returns true if the function should be interoperable with C.
+  /// A CHARACTER dummy argument of a BIND(C) procedure that is not passed by
+  /// descriptor is interoperable only with a length of one (F2023 18.3.7), so
+  /// C receives just the address and no hidden length argument. Passing the
+  /// length anyway is harmless on targets where a C callee ignores extra
+  /// trailing arguments, but changes the function type on targets whose calls
+  /// are checked against the callee's signature, such as WebAssembly.
+  static bool passesNoCharacterLength(mlir::Operation *op) {
+    return fir::hasBindcAttr(op);
+  }
+
   static bool isFuncWithCCallingConvention(mlir::Operation *op) {
     auto funcOp = mlir::dyn_cast<mlir::func::FuncOp>(op);
     if (!funcOp)
@@ -939,8 +957,14 @@ public:
                    specifics->boxcharArgumentType(boxTy.getEleTy())) {
                 auto attr = std::get<fir::CodeGenSpecifics::Attributes>(tup);
                 auto argTy = std::get<mlir::Type>(tup);
-                if (attr.isAppend()) {
+                if (attr.isAppend() && passesNoCharacterLength(func)) {
+                  continue;
+                } else if (attr.isAppend()) {
                   trailingTys.push_back(argTy);
+                } else if (passesNoCharacterLength(func)) {
+                  fixups.emplace_back(FixupTy::Codes::CharBufferOnly,
+                                      newInTyAndAttrs.size());
+                  newInTyAndAttrs.push_back(tup);
                 } else {
                   fixups.emplace_back(FixupTy::Codes::Trailing,
                                       newInTyAndAttrs.size(),
@@ -1149,6 +1173,23 @@ public:
           rewriter->setInsertionPointToStart(&func.front());
           auto box = fir::EmboxCharOp::create(*rewriter, loc, boxTy, newBufArg,
                                               newLenArg);
+          func.getArgument(fixup.index + 1).replaceAllUsesWith(box);
+          func.front().eraseArgument(fixup.index + 1);
+        } break;
+        case FixupTy::Codes::CharBufferOnly: {
+          // A CHARACTER argument of a BIND(C) procedure: only the address is
+          // passed. The callee uses the declared length of the dummy (which
+          // is a constant), so the length in the rebuilt boxchar is unused.
+          auto newBufArg =
+              func.front().insertArgument(fixup.index, fixupType, loc);
+          auto boxTy = mlir::cast<fir::BoxCharType>(
+              oldArgTys[fixup.index - offset]);
+          mlir::Type lenTy = std::get<mlir::Type>(
+              specifics->boxcharArgumentType(boxTy.getEleTy())[1]);
+          rewriter->setInsertionPointToStart(&func.front());
+          auto len = fir::UndefOp::create(*rewriter, loc, lenTy);
+          auto box =
+              fir::EmboxCharOp::create(*rewriter, loc, boxTy, newBufArg, len);
           func.getArgument(fixup.index + 1).replaceAllUsesWith(box);
           func.front().eraseArgument(fixup.index + 1);
         } break;
