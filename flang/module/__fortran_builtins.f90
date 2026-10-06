@@ -36,13 +36,16 @@ module __fortran_builtins
 
   intrinsic :: selected_int_kind
   integer, parameter :: int64 = selected_int_kind(18)
+  ! C_PTR and C_FUNPTR hold an address, so they are as wide as a pointer on
+  ! the target (SIZEOF returns an integer of that width).
+  integer, parameter :: __address_kind = kind(sizeof(0))
 
   type, bind(c), public :: __builtin_c_ptr
-    integer(kind=int64), private :: __address
+    integer(kind=__address_kind), private :: __address
   end type
 
   type, bind(c), public :: __builtin_c_funptr
-    integer(kind=int64), private :: __address
+    integer(kind=__address_kind), private :: __address
   end type
 
   type, public :: __builtin_event_type

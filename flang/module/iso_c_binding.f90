@@ -43,7 +43,12 @@ module iso_c_binding
   integer, parameter, public :: &
     c_int = c_int32_t, &
     c_short = c_int16_t, &
+#if __wasm32__
+    ! WebAssembly's 32-bit C ABI (ILP32) has a 32-bit long.
+    c_long = c_int32_t, &
+#else
     c_long = c_int64_t, &
+#endif
     c_long_long = c_int64_t, &
     c_signed_char = c_int8_t, &
     c_size_t = kind(c_sizeof(1)), &
@@ -117,8 +122,13 @@ module iso_c_binding
     c_unsigned_char = c_uint8_t, &
     c_unsigned_short = c_uint16_t, &
     c_unsigned = c_uint32_t, &
+#if __wasm32__
+    c_unsigned_long = c_uint32_t, &
+    c_unsigned_long_long = c_uint64_t, &
+#else
     c_unsigned_long = c_uint64_t, &
     c_unsigned_long_long = c_unsigned_long, &
+#endif
 #if __powerpc__
     c_uintmax_t = c_uint64_t
 #else

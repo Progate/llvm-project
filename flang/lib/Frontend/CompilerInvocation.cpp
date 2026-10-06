@@ -1827,6 +1827,14 @@ void CompilerInvocation::setDefaultPredefinitions() {
     fortranOptions.predefinitions.emplace_back("__aarch64__", "1");
     fortranOptions.predefinitions.emplace_back("__aarch64", "1");
     break;
+  case llvm::Triple::ArchType::wasm32:
+    fortranOptions.predefinitions.emplace_back("__wasm__", "1");
+    fortranOptions.predefinitions.emplace_back("__wasm32__", "1");
+    break;
+  case llvm::Triple::ArchType::wasm64:
+    fortranOptions.predefinitions.emplace_back("__wasm__", "1");
+    fortranOptions.predefinitions.emplace_back("__wasm64__", "1");
+    break;
   }
 }
 
