@@ -152,9 +152,13 @@ private:
 // .so file.
 class SharedFile : public WasmFileBase {
 public:
-  explicit SharedFile(MemoryBufferRef m) : WasmFileBase(SharedKind, m) {}
+  explicit SharedFile(MemoryBufferRef m);
 
   void parse();
+
+  // The name recorded in the NEEDED entries of modules linked against this
+  // one: the library's own soname, or its file name if it declares none.
+  StringRef soName;
 
   static bool classof(const InputFile *f) { return f->kind() == SharedKind; }
 };

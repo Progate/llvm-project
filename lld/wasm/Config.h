@@ -140,6 +140,8 @@ struct Ctx {
   llvm::SmallVector<ObjFile *, 0> objectFiles;
   llvm::SmallVector<StubFile *, 0> stubFiles;
   llvm::SmallVector<SharedFile *, 0> sharedFiles;
+  // The sonames of sharedFiles, to link each shared library once.
+  llvm::StringSet<> sharedSoNames;
   llvm::SmallVector<BitcodeFile *, 0> bitcodeFiles;
   llvm::SmallVector<BitcodeFile *, 0> lazyBitcodeFiles;
   llvm::SmallVector<InputFunction *, 0> syntheticFunctions;

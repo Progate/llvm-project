@@ -188,6 +188,12 @@ void WasmWriter::writeSectionContent(raw_ostream &OS,
       writeStringRef(Path, SubOS);
     SubSection.done();
   }
+  if (!Section.SoName.empty()) {
+    writeUint8(OS, wasm::WASM_DYLINK_SONAME);
+    raw_ostream &SubOS = SubSection.getStream();
+    writeStringRef(Section.SoName, SubOS);
+    SubSection.done();
+  }
 }
 
 void WasmWriter::writeSectionContent(raw_ostream &OS,

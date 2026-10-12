@@ -39,6 +39,11 @@ void SymbolTable::addFile(InputFile *file, StringRef symName) {
 
   // .so file
   if (auto *f = dyn_cast<SharedFile>(file)) {
+    // As in ELF, a library reached through more than one path (e.g.
+    // libfoo.so and libfoo.so.1, both symlinks to the same file) is the same
+    // library at runtime, so it is only linked, and only NEEDED, once.
+    if (!ctx.sharedSoNames.insert(f->soName).second)
+      return;
     // If we are not reporting undefined symbols that we don't actualy
     // parse the shared library symbol table.
     f->parse();
