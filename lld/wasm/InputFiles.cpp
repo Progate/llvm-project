@@ -429,6 +429,12 @@ ObjFile::ObjFile(MemoryBufferRef m, StringRef archiveName, bool lazy)
     markLive();
 }
 
+SharedFile::SharedFile(MemoryBufferRef m) : WasmFileBase(SharedKind, m) {
+  soName = wasmObj->dylinkInfo().SoName;
+  if (soName.empty())
+    soName = llvm::sys::path::filename(getName());
+}
+
 void SharedFile::parse() {
   assert(wasmObj->isSharedObject());
 

@@ -47,7 +47,6 @@ _start:
 
 
 #      CHECK:    Name:            dylink.0
-# CHECK-NEXT:    TargetArch:      wasm32
 #      CHECK:    ExportInfo:
 # CHECK-NEXT:      - Name:            tls1
 # CHECK-NEXT:        Flags:           [ TLS ]

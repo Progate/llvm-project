@@ -224,7 +224,7 @@ def export_memory_with_name: JJ<"export-memory=">,
 def shared_memory: FF<"shared-memory">,
   HelpText<"Use shared linear memory">;
 
-defm soname: Eq<"soname", "Set the module name in the generated name section">;
+defm soname: Eq<"soname", "Set the soname of a shared library, also used as the module name in the name section">;
 
 def import_table: FF<"import-table">,
   HelpText<"Import function table from the environment">;

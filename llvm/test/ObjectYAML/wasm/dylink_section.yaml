@@ -12,6 +12,7 @@ Sections:
     TableAlignment:  0
     Needed:          [ libfoo.so, libbar.so ]
     RuntimePath: [ $ORIGIN/../lib, $ORIGIN/../../.libs]
+    SoName:      libfoo.so.1
 ...
 # CHECK: --- !WASM
 # CHECK: FileHeader:
@@ -29,4 +30,5 @@ Sections:
 # CHECK:     RuntimePath:
 # CHECK:      - '$ORIGIN/../lib'
 # CHECK:      - '$ORIGIN/../../.libs'
+# CHECK:     SoName:          libfoo.so.1
 # CHECK: ...
