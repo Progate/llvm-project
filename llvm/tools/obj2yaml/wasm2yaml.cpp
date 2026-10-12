@@ -63,6 +63,7 @@ WasmDumper::dumpCustomSection(const WasmSection &WasmSec) {
     DylinkSec->TableAlignment = Info.TableAlignment;
     DylinkSec->Needed = Info.Needed;
     DylinkSec->RuntimePath = Info.RuntimePath;
+    DylinkSec->SoName = Info.SoName;
     for (const auto &Imp : Info.ImportInfo)
       DylinkSec->ImportInfo.push_back({Imp.Module, Imp.Field, Imp.Flags});
     for (const auto &Exp : Info.ExportInfo)

@@ -60,6 +60,7 @@ static void sectionMapping(IO &IO, WasmYAML::DylinkSection &Section) {
   IO.mapOptional("ImportInfo", Section.ImportInfo);
   IO.mapOptional("ExportInfo", Section.ExportInfo);
   IO.mapOptional("RuntimePath", Section.RuntimePath);
+  IO.mapOptional("SoName", Section.SoName, StringRef());
 }
 
 static void sectionMapping(IO &IO, WasmYAML::NameSection &Section) {

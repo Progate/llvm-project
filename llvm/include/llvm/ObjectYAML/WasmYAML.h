@@ -232,6 +232,7 @@ struct DylinkSection : CustomSection {
   std::vector<DylinkImportInfo> ImportInfo;
   std::vector<DylinkExportInfo> ExportInfo;
   std::vector<StringRef> RuntimePath;
+  StringRef SoName;
 };
 
 struct NameSection : CustomSection {
