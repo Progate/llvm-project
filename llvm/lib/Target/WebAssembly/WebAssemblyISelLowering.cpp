@@ -1043,6 +1043,19 @@ bool WebAssemblyTargetLowering::isVectorLoadExtDesirable(SDValue ExtVal) const {
          (ExtT == MVT::v2i64 && MemT == MVT::v2i32);
 }
 
+bool WebAssemblyTargetLowering::shouldReduceLoadWidth(
+    SDNode *Load, ISD::LoadExtType ExtTy, EVT NewVT,
+    std::optional<unsigned> ByteOffset) const {
+  // A wasm global or local is read whole by global.get or local.get. Only a
+  // load of its full type is lowered that way (LowerLoad); a narrower,
+  // extending one would be selected as a load from linear memory at the
+  // symbol's address.
+  if (WebAssembly::isWasmVarAddressSpace(
+          cast<LoadSDNode>(Load)->getAddressSpace()))
+    return false;
+  return TargetLowering::shouldReduceLoadWidth(Load, ExtTy, NewVT, ByteOffset);
+}
+
 bool WebAssemblyTargetLowering::isOffsetFoldingLegal(
     const GlobalAddressSDNode *GA) const {
   // Wasm doesn't support function addresses with offsets
