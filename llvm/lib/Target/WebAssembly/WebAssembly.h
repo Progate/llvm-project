@@ -29,6 +29,7 @@ ModulePass *createWebAssemblyLowerEmscriptenEHSjLj();
 ModulePass *createWebAssemblyAddMissingPrototypes();
 ModulePass *createWebAssemblyFixFunctionBitcasts();
 FunctionPass *createWebAssemblyOptimizeReturned();
+FunctionPass *createWebAssemblyFPExceptionFlags();
 FunctionPass *createWebAssemblyLowerRefTypesIntPtrConv();
 FunctionPass *createWebAssemblyRefTypeMem2Local();
 
@@ -60,6 +61,7 @@ ModulePass *createWebAssemblyMCLowerPrePass();
 
 // PassRegistry initialization declarations.
 void initializeFixFunctionBitcastsPass(PassRegistry &);
+void initializeWebAssemblyFPExceptionFlagsPass(PassRegistry &);
 void initializeOptimizeReturnedPass(PassRegistry &);
 void initializeWebAssemblyRefTypeMem2LocalPass(PassRegistry &);
 void initializeWebAssemblyAddMissingPrototypesPass(PassRegistry &);
