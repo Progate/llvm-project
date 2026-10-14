@@ -116,6 +116,23 @@
 // WASI_THREADS: "-cc1" {{.*}} "-target-feature" "+atomics" "-target-feature" "+bulk-memory" "-target-feature" "+mutable-globals" "-target-feature" "+sign-ext"
 // WASI_THREADS: wasm-ld{{.*}}" "--shared-memory" "-lpthread"
 
+// '-fopenmp' links the OpenMP runtime before '-lpthread'
+// RUN: %clang -### --target=wasm32-wasip1-threads --sysroot=/foo %s -fopenmp 2>&1 \
+// RUN:   | FileCheck -check-prefix=OPENMP %s
+// OPENMP: wasm-ld{{.*}}" "-lomp" {{.*}}"-lpthread" "-lc"
+
+// RUN: %clang -### --target=wasm32-wasip1-threads --sysroot=/foo %s -fopenmp -static-openmp 2>&1 \
+// RUN:   | FileCheck -check-prefix=STATIC_OPENMP %s
+// STATIC_OPENMP: wasm-ld{{.*}}" "-Bstatic" "-lomp" "-Bdynamic"
+
+// RUN: %clang -### --target=wasm32-wasip1-threads --sysroot=/foo %s -fopenmp -nostdlib 2>&1 \
+// RUN:   | FileCheck -check-prefix=OPENMP_NOSTDLIB %s
+// OPENMP_NOSTDLIB-NOT: "-lomp"
+
+// RUN: %clang -### --target=wasm32-wasip1-threads --sysroot=/foo %s 2>&1 \
+// RUN:   | FileCheck -check-prefix=NO_OPENMP %s
+// NO_OPENMP-NOT: "-lomp"
+
 // '-mllvm -emscripten-cxx-exceptions-allowed=foo,bar' sets
 // '-mllvm --force-attribute=foo:noinline -mllvm --force-attribute=bar:noinline'
 // RUN: %clang -### --target=wasm32-unknown-unknown \
