@@ -2778,6 +2778,68 @@ typedef void (*microtask_t15)(int *, int *, void *, void *, void *, void *,
                               void *, void *, void *, void *, void *, void *,
                               void *, void *, void *, void *, void *);
 
+#if KMP_ARCH_WASM
+// Clang passes every variable a parallel region captures as a separate
+// argument of __kmpc_fork_call, so the outlined function can take many more
+// arguments than the switch below covers (a loop over 18 arrays already needs
+// 19). Every argument is a pointer or a pointer-sized value, so the type of a
+// microtask is fixed by its argument count: build one caller per count up to
+// KMP_WASM_MICROTASK_MAX_ARGS and index them by argc.
+#define KMP_WASM_MICROTASK_MAX_ARGS 255
+
+namespace {
+typedef void (*kmp_microtask_caller_t)(microtask_t, int *, int *, void **);
+
+template <size_t> using kmp_microtask_arg_t = void *;
+template <size_t... I> struct kmp_index_list {};
+template <size_t N, size_t... I>
+struct kmp_make_index_list : kmp_make_index_list<N - 1, N - 1, I...> {};
+template <size_t... I> struct kmp_make_index_list<0, I...> {
+  typedef kmp_index_list<I...> type;
+};
+
+template <size_t... I>
+void __kmp_call_microtask(microtask_t pkfn, int *gtid, int *tid,
+                          void **p_argv) {
+  ((void (*)(int *, int *, kmp_microtask_arg_t<I>...))pkfn)(gtid, tid,
+                                                            p_argv[I]...);
+}
+
+template <size_t... I>
+constexpr kmp_microtask_caller_t __kmp_microtask_caller(kmp_index_list<I...>) {
+  return &__kmp_call_microtask<I...>;
+}
+
+template <typename> struct kmp_microtask_callers;
+template <size_t... N> struct kmp_microtask_callers<kmp_index_list<N...>> {
+  static constexpr kmp_microtask_caller_t table[] = {
+      __kmp_microtask_caller(typename kmp_make_index_list<N>::type())...};
+};
+} // namespace
+
+int __kmp_invoke_microtask(microtask_t pkfn, int gtid, int tid, int argc,
+                           void *p_argv[]
+#if OMPT_SUPPORT
+                           ,
+                           void **exit_frame_ptr
+#endif
+) {
+#if OMPT_SUPPORT
+  *exit_frame_ptr = OMPT_GET_FRAME_ADDRESS(0);
+#endif
+  typedef kmp_microtask_callers<
+      kmp_make_index_list<KMP_WASM_MICROTASK_MAX_ARGS + 1>::type>
+      callers;
+
+  if (argc < 0 || argc > KMP_WASM_MICROTASK_MAX_ARGS) {
+    fprintf(stderr, "Too many args to microtask: %d!\n", argc);
+    fflush(stderr);
+    exit(-1);
+  }
+  callers::table[argc](pkfn, &gtid, &tid, p_argv);
+  return 1;
+}
+#else
 // we really only need the case with 1 argument, because CLANG always build
 // a struct of pointers to shared variables referenced in the outlined function
 int __kmp_invoke_microtask(microtask_t pkfn, int gtid, int tid, int argc,
@@ -2872,6 +2934,7 @@ int __kmp_invoke_microtask(microtask_t pkfn, int gtid, int tid, int argc,
 
   return 1;
 }
+#endif // KMP_ARCH_WASM
 
 #endif
 
