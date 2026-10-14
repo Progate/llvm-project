@@ -55,6 +55,7 @@
 #include "llvm/Pass.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
+#include "llvm/Transforms/Utils/CodeExtractor.h"
 #include <optional>
 
 using namespace llvm;
@@ -140,6 +141,18 @@ bool isFPToInt(Intrinsic::ID ID) {
   }
 }
 
+/// The scalar results of a run that must be finite, summed per type. The sum of
+/// finite values minus itself is zero; an infinite or NaN term makes it NaN (an
+/// overflowing sum too, which only sends the run to its full checks). One
+/// addition a result is cheaper than testing each magnitude.
+/// The terms are added as a balanced tree, so that the sum does not lengthen a
+/// chain of dependent additions (a dot product's accumulator) in the run.
+using Sums = DenseMap<Type *, SmallVector<Value *, 8>>;
+
+/// Marks the functions that hold the moved-out full checks of runs, whose own
+/// arithmetic must not be checked.
+constexpr const char *OutlinedAttr = "wasm-fp-exception-checks";
+
 class Instrumenter {
   Function &F;
   Module &M;
@@ -165,7 +178,10 @@ public:
 
 private:
   void instrument(Instruction *I, Instruction *IP);
-  Value *settles(Instruction *I, IRBuilder<> &B, bool &NeedsInexact);
+  SmallVector<BasicBlock *, 16> regionBetween(BasicBlock *Head,
+                                              BasicBlock *Join);
+  Value *settles(Instruction *I, IRBuilder<> &B, bool &NeedsInexact,
+                 Sums &Finite);
   Value *quietOperands(ArrayRef<Value *> Operands, const Format &Fm,
                        IRBuilder<> &B);
   SmallVector<Value *, 2> checkedOperands(ArrayRef<Value *> Operands);
@@ -1017,14 +1033,23 @@ static bool canGroup(Instruction &I) {
   return raisesOnlyForSignalingNaN(ID);
 }
 
-Value *Instrumenter::settles(Instruction *I, IRBuilder<> &B,
-                             bool &NeedsInexact) {
+Value *Instrumenter::settles(Instruction *I, IRBuilder<> &B, bool &NeedsInexact,
+                             Sums &Finite) {
   // A condition under which I raises nothing but inexact (NeedsInexact) or
   // nothing at all. It is what the full check tests first, written with
   // floating-point comparisons, which are the cheapest test on WebAssembly.
+  // A scalar result that must be finite is added to Finite instead (true is
+  // returned), and the run tests the sum once.
   NeedsInexact = false;
   auto All = [&](Value *V) {
     return isa<FixedVectorType>(V->getType()) ? B.CreateAndReduce(V) : V;
+  };
+  auto IsFinite = [&](Value *R) -> Value * {
+    Type *Ty = R->getType();
+    if (isa<FixedVectorType>(Ty))
+      return All(isFinite(B, R));
+    Finite[Ty].push_back(R);
+    return B.getTrue();
   };
   // Normal and above the smallest binade.
   auto Common = [&](Value *R) {
@@ -1033,15 +1058,14 @@ Value *Instrumenter::settles(Instruction *I, IRBuilder<> &B,
     APFloat Lo = scalbn(APFloat::getSmallestNormalized(Sem), 1,
                         APFloat::rmNearestTiesToEven);
     Value *Abs = B.CreateUnaryIntrinsic(Intrinsic::fabs, R);
-    return All(B.CreateAnd(
-        B.CreateFCmpOGE(Abs, ConstantFP::get(Ty, Lo)),
-        B.CreateFCmpOLE(Abs, ConstantFP::get(Ty, APFloat::getLargest(Sem)))));
+    return B.CreateAnd(All(B.CreateFCmpOGE(Abs, ConstantFP::get(Ty, Lo))),
+                       IsFinite(R));
   };
   if (auto *BO = dyn_cast<BinaryOperator>(I)) {
     NeedsInexact = true;
     if (BO->getOpcode() == Instruction::FAdd ||
         BO->getOpcode() == Instruction::FSub)
-      return All(isFinite(B, BO));
+      return IsFinite(BO);
     return Common(BO);
   }
   if (isa<FCmpInst>(I) || isa<FPExtInst>(I)) {
@@ -1147,6 +1171,7 @@ bool Instrumenter::run() {
     Instruction *End = nullptr;
   };
   SmallVector<Run, 16> Runs;
+  SmallVector<SmallVector<BasicBlock *, 16>, 8> Cold;
   SmallVector<Instruction *, 16> Singles;
   SmallPtrSet<Instruction *, 32> Instrumented(llvm::from_range, Work);
   for (BasicBlock &BB : F) {
@@ -1177,19 +1202,91 @@ bool Instrumenter::run() {
     IRBuilder<> B(R.End);
     Value *Settled = nullptr;
     bool NeedsInexact = false;
+    Sums Finite;
     for (Instruction *I : R.Ops) {
       bool Needs;
-      Value *S = settles(I, B, Needs);
+      Value *S = settles(I, B, Needs, Finite);
       NeedsInexact |= Needs;
       Settled = Settled ? B.CreateAnd(Settled, S) : S;
+    }
+    for (auto &[Ty, Terms] : Finite) {
+      // Addition, subtraction and multiplication carry an infinity or a NaN
+      // operand into their result (an infinity times zero or minus itself is
+      // NaN), and so does division in its dividend. A term used that way by
+      // another term is finite when that one is, and need not be added.
+      SmallPtrSet<Value *, 8> InSum(llvm::from_range, Terms);
+      auto Implied = [&](Value *V) {
+        for (User *U : V->users()) {
+          auto *BO = dyn_cast<BinaryOperator>(U);
+          if (!BO || !InSum.contains(BO))
+            continue;
+          unsigned Opc = BO->getOpcode();
+          if (Opc == Instruction::FAdd || Opc == Instruction::FSub ||
+              Opc == Instruction::FMul ||
+              (Opc == Instruction::FDiv && BO->getOperand(0) == V))
+            return true;
+        }
+        return false;
+      };
+      llvm::erase_if(Terms, Implied);
+      while (Terms.size() > 1) {
+        SmallVector<Value *, 8> Next;
+        for (unsigned I = 0; I + 1 < Terms.size(); I += 2)
+          Next.push_back(B.CreateFAdd(Terms[I], Terms[I + 1]));
+        if (Terms.size() % 2)
+          Next.push_back(Terms.back());
+        Terms = std::move(Next);
+      }
+      Settled =
+          B.CreateAnd(Settled, B.CreateFCmpOEQ(B.CreateFSub(Terms[0], Terms[0]),
+                                               ConstantFP::getZero(Ty)));
     }
     if (NeedsInexact)
       Settled = B.CreateAnd(Settled, B.CreateNot(lacks(B, FEInexact)));
     Instruction *Check = ifThen(B.CreateNot(Settled), R.End, Unlikely);
-    for (Instruction *I : R.Ops)
+    BasicBlock *Head = Check->getParent(), *Join = R.End->getParent();
+    bool InFunclet = false;
+    for (Instruction *I : R.Ops) {
       instrument(I, Check);
+      InFunclet |= Pads.count(I) != 0;
+    }
+    // A funclet's blocks cannot be moved out of it
+    if (!InFunclet)
+      Cold.push_back(regionBetween(Head, Join));
+  }
+
+  // Move the full checks of each run out to a function of their own.
+  // WebAssembly has structured control flow, so a cold block stays inside the
+  // loop that contains it, and the engine compiles it as part of the loop: the
+  // hundreds of instructions of a run's full checks then make the loop's own
+  // code slower (more values live across it, registers spilled), even when they
+  // never run. A call is all that stays in the loop.
+  if (!Cold.empty()) {
+    CodeExtractorAnalysisCache CEAC(F);
+    for (SmallVector<BasicBlock *, 16> &Blocks : Cold) {
+      CodeExtractor CE(Blocks, nullptr, false, nullptr, nullptr, nullptr, false,
+                       false, nullptr, "fe_check");
+      if (Function *Outlined = CE.extractCodeRegion(CEAC)) {
+        Outlined->addFnAttr(Attribute::Cold);
+        Outlined->addFnAttr(Attribute::NoInline);
+        Outlined->addFnAttr(OutlinedAttr);
+      }
+    }
   }
   return true;
+}
+
+SmallVector<BasicBlock *, 16> Instrumenter::regionBetween(BasicBlock *Head,
+                                                          BasicBlock *Join) {
+  // The blocks reachable from Head without going through Join: the full
+  // checks of a run, which all lead back to Join.
+  SmallVector<BasicBlock *, 16> Region{Head};
+  SmallPtrSet<BasicBlock *, 16> Seen{Head, Join};
+  for (unsigned I = 0; I < Region.size(); ++I)
+    for (BasicBlock *Succ : successors(Region[I]))
+      if (Seen.insert(Succ).second)
+        Region.push_back(Succ);
+  return Region;
 }
 
 class WebAssemblyFPExceptionFlags final : public FunctionPass {
@@ -1197,7 +1294,11 @@ class WebAssemblyFPExceptionFlags final : public FunctionPass {
     return "WebAssembly FP Exception Flags";
   }
 
-  bool runOnFunction(Function &F) override { return Instrumenter(F).run(); }
+  bool runOnFunction(Function &F) override {
+    if (F.hasFnAttribute(OutlinedAttr))
+      return false;
+    return Instrumenter(F).run();
+  }
 
 public:
   static char ID;

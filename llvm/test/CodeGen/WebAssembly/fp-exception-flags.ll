@@ -1,4 +1,5 @@
 ; RUN: llc < %s -mtriple=wasm32-wasip1 -stop-after=wasm-fp-exception-flags | FileCheck %s
+; RUN: llc < %s -mtriple=wasm32-wasip1 -stop-after=wasm-fp-exception-flags | FileCheck %s --check-prefix=OUT
 ; RUN: llc < %s -mtriple=wasm32-unknown-unknown -wasm-raise-fp-exceptions -stop-after=wasm-fp-exception-flags | FileCheck %s
 ; RUN: llc < %s -mtriple=wasm32-unknown-unknown -stop-after=wasm-fp-exception-flags | FileCheck %s --check-prefix=OFF
 ; RUN: llc < %s -mtriple=wasm32-wasip1 -wasm-raise-fp-exceptions=false -stop-after=wasm-fp-exception-flags | FileCheck %s --check-prefix=OFF
@@ -8,42 +9,46 @@
 ; RUN: llc < %s -mtriple=wasm32-wasip1 -mattr=+simd128 -O2 | FileCheck %s --check-prefix=ASM
 
 ; Floating-point operations raise the IEEE 754 exception flags in the wasm
-; global __fe_status, which the C library defines.
+; global __fe_status, which the C library defines. The operations of a block
+; up to its next call are tested together (CHECK); their full checks are moved
+; out to a function (OUT), which the test calls only when it fails.
 
 ; OFF-NOT: __fe_status
 ; CHECK: @__fe_status = external addrspace(1) global i32
 ; ASM: .globaltype __fe_status, i32
 
-; The operations of a block up to its next call are checked together. A
-; finite sum raises at most inexact, so with inexact set nothing more is done.
-; Otherwise the full check follows: TwoSum decides inexact, and an infinite or
-; NaN error or result goes to the C library.
+; A finite sum raises at most inexact, so with inexact set nothing more is
+; done. A value minus itself is zero exactly when it is finite. Otherwise the
+; full check runs: TwoSum decides inexact, and an infinite or NaN error or
+; result goes to the C library.
 define double @add(double %a, double %b) {
 ; CHECK-LABEL: @add(
 ; CHECK: %r = fadd double %a, %b
-; CHECK-NEXT: [[ABS:%.*]] = call double @llvm.fabs.f64(double %r)
-; CHECK-NEXT: [[FIN:%.*]] = fcmp olt double [[ABS]], 0x7FF0000000000000
-; CHECK-NEXT: [[ST0:%.*]] = load i32, ptr addrspace(1) @__fe_status
+; CHECK-NEXT: [[D:%.*]] = fsub double %r, %r
+; CHECK-NEXT: fcmp oeq double [[D]], 0.000000e+00
+; CHECK: [[ST0:%.*]] = load i32, ptr addrspace(1) @__fe_status
 ; CHECK-NEXT: and i32 [[ST0]], 32
 ; CHECK: br i1
-; CHECK: [[BITS:%.*]] = bitcast double %r to i64
-; CHECK-NEXT: [[SHIFT:%.*]] = lshr i64 [[BITS]], 52
-; CHECK-NEXT: [[EXP:%.*]] = and i64 [[SHIFT]], 2047
-; CHECK-NEXT: [[FINITE:%.*]] = icmp ne i64 [[EXP]], 2047
-; CHECK-NEXT: br i1 [[FINITE]]
-; CHECK: [[ST:%.*]] = load i32, ptr addrspace(1) @__fe_status
-; CHECK-NEXT: [[IX:%.*]] = and i32 [[ST]], 32
-; CHECK-NEXT: icmp eq i32 [[IX]], 0
-; CHECK: [[B1:%.*]] = fsub double %r, %a
-; CHECK-NEXT: [[A1:%.*]] = fsub double %r, [[B1]]
-; CHECK-NEXT: [[DA:%.*]] = fsub double %a, [[A1]]
-; CHECK-NEXT: [[DB:%.*]] = fsub double %b, [[B1]]
-; CHECK-NEXT: [[ERR:%.*]] = fadd double [[DA]], [[DB]]
-; CHECK: fcmp one double [[ERR]], 0.000000e+00
-; CHECK: or i32 {{%.*}}, 32
-; CHECK: store i32 {{%.*}}, ptr addrspace(1) @__fe_status
-; CHECK: call void @__fe_add_f64(i64 {{%.*}}, i64 {{%.*}})
+; CHECK: call void @add.fe_check(double %r, double %a, double %b)
 ; CHECK: ret double %r
+; OUT-LABEL: define internal void @add.fe_check(double %r, double %a, double %b)
+; OUT: [[BITS:%.*]] = bitcast double %r to i64
+; OUT-NEXT: [[SHIFT:%.*]] = lshr i64 [[BITS]], 52
+; OUT-NEXT: [[EXP:%.*]] = and i64 [[SHIFT]], 2047
+; OUT-NEXT: [[FINITE:%.*]] = icmp ne i64 [[EXP]], 2047
+; OUT-NEXT: br i1 [[FINITE]]
+; OUT: [[ST:%.*]] = load i32, ptr addrspace(1) @__fe_status
+; OUT-NEXT: [[IX:%.*]] = and i32 [[ST]], 32
+; OUT-NEXT: icmp eq i32 [[IX]], 0
+; OUT: [[B1:%.*]] = fsub double %r, %a
+; OUT-NEXT: [[A1:%.*]] = fsub double %r, [[B1]]
+; OUT-NEXT: [[DA:%.*]] = fsub double %a, [[A1]]
+; OUT-NEXT: [[DB:%.*]] = fsub double %b, [[B1]]
+; OUT-NEXT: [[ERR:%.*]] = fadd double [[DA]], [[DB]]
+; OUT: call void @__fe_add_f64(i64 {{%.*}}, i64 {{%.*}})
+; OUT: fcmp one double [[ERR]], 0.000000e+00
+; OUT: or i32 {{%.*}}, 32
+; OUT: store i32 {{%.*}}, ptr addrspace(1) @__fe_status
   %r = fadd double %a, %b
   ret double %r
 }
@@ -55,35 +60,36 @@ define float @mul_f32(float %a, float %b) {
 ; CHECK: %r = fmul float %a, %b
 ; CHECK-NEXT: [[ABS:%.*]] = call float @llvm.fabs.f32(float %r)
 ; CHECK-NEXT: fcmp oge float [[ABS]], 0x3820000000000000
-; CHECK-NEXT: fcmp ole float [[ABS]], 0x47EFFFFFE0000000
-; CHECK: [[E:%.*]] = and i32 {{%.*}}, 255
-; CHECK-NEXT: [[E2:%.*]] = sub i32 [[E]], 2
-; CHECK-NEXT: icmp ult i32 [[E2]], 253
-; CHECK: [[AD:%.*]] = fpext float %a to double
-; CHECK-NEXT: [[BD:%.*]] = fpext float %b to double
-; CHECK-NEXT: [[P:%.*]] = fmul double [[AD]], [[BD]]
-; CHECK-NEXT: [[RD:%.*]] = fpext float %r to double
-; CHECK-NEXT: fcmp une double [[P]], [[RD]]
-; CHECK: call void @__fe_mul_f32(i32 {{%.*}}, i32 {{%.*}})
+; CHECK: fsub float %r, %r
+; CHECK: call void @mul_f32.fe_check(float %r, float %a, float %b)
+; OUT-LABEL: define internal void @mul_f32.fe_check(
+; OUT: [[E:%.*]] = and i32 {{%.*}}, 255
+; OUT-NEXT: [[E2:%.*]] = sub i32 [[E]], 2
+; OUT-NEXT: icmp ult i32 [[E2]], 253
+; OUT: [[AD:%.*]] = fpext float %a to double
+; OUT-NEXT: [[BD:%.*]] = fpext float %b to double
+; OUT-NEXT: [[P:%.*]] = fmul double [[AD]], [[BD]]
+; OUT-NEXT: [[RD:%.*]] = fpext float %r to double
+; OUT-NEXT: fcmp une double [[P]], [[RD]]
+; OUT: call void @__fe_mul_f32(i32 {{%.*}}, i32 {{%.*}})
   %r = fmul float %a, %b
   ret float %r
 }
 
 ; A double product uses Dekker's product when both operands are within range.
 define double @mul_f64(double %a, double %b) {
-; CHECK-LABEL: @mul_f64(
-; CHECK: fmul double %a, 0x41A0000002000000
-; CHECK: call void @__fe_mul_f64(
+; OUT-LABEL: define internal void @mul_f64.fe_check(
+; OUT: fmul double %a, 0x41A0000002000000
+; OUT: call void @__fe_mul_f64(
   %r = fmul double %a, %b
   ret double %r
 }
 
 ; A finite nonzero dividend over zero raises division by zero inline.
 define double @div(double %a, double %b) {
-; CHECK-LABEL: @div(
-; CHECK: %r = fdiv double %a, %b
-; CHECK: or i32 {{%.*}}, 4
-; CHECK: call void @__fe_div_f64(
+; OUT-LABEL: define internal void @div.fe_check(
+; OUT: or i32 {{%.*}}, 4
+; OUT: call void @__fe_div_f64(
   %r = fdiv double %a, %b
   ret double %r
 }
@@ -93,9 +99,10 @@ define double @sqrt(double %a) {
 ; CHECK-LABEL: @sqrt(
 ; CHECK: %r = call double @llvm.sqrt.f64(double %a)
 ; CHECK-NEXT: fcmp uno double %r, %r
-; CHECK: [[NAN:%.*]] = fcmp uno double %r, %r
-; CHECK: or i32 {{%.*}}, 1
-; CHECK: call void @__fe_sqrt_f64(
+; OUT-LABEL: define internal void @sqrt.fe_check(
+; OUT: [[NAN:%.*]] = fcmp uno double %r, %r
+; OUT: or i32 {{%.*}}, 1
+; OUT: call void @__fe_sqrt_f64(
   %r = call double @llvm.sqrt.f64(double %a)
   ret double %r
 }
@@ -107,11 +114,13 @@ define i1 @compare(double %a, double %b) {
 ; CHECK: %r = fcmp olt double %a, %b
 ; CHECK-NEXT: fcmp uno double %a, %b
 ; CHECK-NOT: load
-; CHECK: [[UNO:%.*]] = fcmp uno double %a, %b
-; CHECK-NEXT: br i1 [[UNO]]
-; CHECK: sub i64 {{%.*}}, 9218868437227405313
-; CHECK: icmp ult i64 {{%.*}}, 2251799813685247
-; CHECK: or i32 {{%.*}}, 1
+; CHECK: call void @compare.fe_check(double %a, double %b)
+; OUT-LABEL: define internal void @compare.fe_check(
+; OUT: [[UNO:%.*]] = fcmp uno double %a, %b
+; OUT-NEXT: br i1 [[UNO]]
+; OUT: sub i64 {{%.*}}, 9218868437227405313
+; OUT: icmp ult i64 {{%.*}}, 2251799813685247
+; OUT: or i32 {{%.*}}, 1
   %r = fcmp olt double %a, %b
   ret i1 %r
 }
@@ -126,11 +135,10 @@ define i1 @compare_constant(double %a) {
 
 ; Narrowing is exact when widening back gives the operand.
 define float @trunc(double %a) {
-; CHECK-LABEL: @trunc(
-; CHECK: %r = fptrunc double %a to float
-; CHECK: [[W:%.*]] = fpext float %r to double
-; CHECK-NEXT: fcmp une double [[W]], %a
-; CHECK: call void @__fe_trunc_f64_f32(i64
+; OUT-LABEL: define internal void @trunc.fe_check(
+; OUT: [[W:%.*]] = fpext float %r to double
+; OUT-NEXT: fcmp une double [[W]], %a
+; OUT: call void @__fe_trunc_f64_f32(i64
   %r = fptrunc double %a to float
   ret float %r
 }
@@ -192,7 +200,8 @@ define double @rint(double %a) {
 ; CHECK-LABEL: @rint(
 ; CHECK: %r = call double @llvm.rint.f64(double %a)
 ; CHECK-NEXT: fcmp uno double %a, %a
-; CHECK: fcmp une double %r, %a
+; OUT-LABEL: define internal void @rint.fe_check(
+; OUT: fcmp une double %r, %a
   %r = call double @llvm.rint.f64(double %a)
   ret double %r
 }
@@ -203,8 +212,9 @@ define double @muladd(double %a, double %b, double %c) {
 ; CHECK-NOT: llvm.fmuladd
 ; CHECK: [[M:%.*]] = fmul double %a, %b
 ; CHECK-NEXT: %r = fadd double [[M]], %c
-; CHECK: call void @__fe_mul_f64(
-; CHECK: call void @__fe_add_f64(
+; OUT-LABEL: define internal void @muladd.fe_check(
+; OUT: call void @__fe_mul_f64(
+; OUT: call void @__fe_add_f64(
   %r = call double @llvm.fmuladd.f64(double %a, double %b, double %c)
   ret double %r
 }
@@ -243,11 +253,12 @@ define <2 x double> @add_vector(<2 x double> %a, <2 x double> %b) {
 ; CHECK: %r = fadd <2 x double> %a, %b
 ; CHECK-NEXT: call <2 x double> @llvm.fabs.v2f64(<2 x double> %r)
 ; CHECK: call i1 @llvm.vector.reduce.and.v2i1(
-; CHECK: bitcast <2 x double> %r to <2 x i64>
-; CHECK: extractelement <2 x double> %a, i64 0
-; CHECK: call void @__fe_add_f64(
-; CHECK: extractelement <2 x double> %a, i64 1
-; CHECK: call void @__fe_add_f64(
+; OUT-LABEL: define internal void @add_vector.fe_check(
+; OUT: bitcast <2 x double> %r to <2 x i64>
+; OUT: extractelement <2 x double> %a, i64 0
+; OUT: call void @__fe_add_f64(
+; OUT: extractelement <2 x double> %a, i64 1
+; OUT: call void @__fe_add_f64(
   %r = fadd <2 x double> %a, %b
   ret <2 x double> %r
 }
@@ -275,21 +286,28 @@ define double @exact(double %a, double %b) {
 }
 
 ; A call may read or clear the flags (fetestexcept), so the operations before
-; it are checked before it, and those after it after.
+; it are checked before it, and those after it after. %x is finite when %y is
+; (an infinity or NaN operand of an addition makes its result one too), so
+; only %y is tested for it.
 define double @runs(double %a, double %b) {
 ; CHECK-LABEL: @runs(
 ; CHECK: %x = fmul double %a, %b
 ; CHECK-NEXT: %y = fadd double %x, %a
 ; CHECK-NEXT: call double @llvm.fabs.f64(double %x)
-; CHECK: call double @llvm.fabs.f64(double %y)
+; CHECK-NOT: fsub double %x, %x
+; CHECK: fsub double %y, %y
 ; CHECK: load i32, ptr addrspace(1) @__fe_status
 ; CHECK-NOT: call i32 @fetestexcept
-; CHECK: call void @__fe_mul_f64(
-; CHECK: call void @__fe_add_f64(
+; CHECK: call void @runs.fe_check(double %x, double %a, double %b, double %y)
 ; CHECK: %t = call i32 @fetestexcept(i32 61)
 ; CHECK: %z = fsub double %y, %b
-; CHECK: call void @__fe_sub_f64(
+; CHECK: call void @runs.fe_check.1(double %z, double %y, double %b)
 ; CHECK: ret double %z
+; OUT-LABEL: define internal void @runs.fe_check(
+; OUT: call void @__fe_mul_f64(
+; OUT: call void @__fe_add_f64(
+; OUT-LABEL: define internal void @runs.fe_check.1(
+; OUT: call void @__fe_sub_f64(
   %x = fmul double %a, %b
   %y = fadd double %x, %a
   %t = call i32 @fetestexcept(i32 61)
@@ -298,3 +316,6 @@ define double @runs(double %a, double %b) {
 }
 
 declare i32 @fetestexcept(i32)
+
+; The moved-out checks are cold and their own arithmetic is not checked.
+; OUT: attributes #{{[0-9]+}} = { cold noinline {{.*}}"wasm-fp-exception-checks" }
