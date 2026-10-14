@@ -174,6 +174,12 @@ void wasm::Linker::ConstructJob(Compilation &C, const JobAction &JA,
     if (ToolChain.ShouldLinkCXXStdlib(Args))
       ToolChain.AddCXXStdlibLibArgs(Args, CmdArgs);
 
+    // As on other targets, -fopenmp links the OpenMP runtime, before -lpthread
+    // because the runtime is built on pthreads.
+    bool StaticOpenMP = Args.hasArg(options::OPT_static_openmp) &&
+                        !Args.hasArg(options::OPT_static);
+    addOpenMPRuntime(C, CmdArgs, ToolChain, Args, StaticOpenMP);
+
     if (WantsPthread(ToolChain.getTriple(), Args))
       CmdArgs.push_back("-lpthread");
 
