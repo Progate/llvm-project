@@ -42,6 +42,7 @@
 #include "Utils/WasmAddressSpaces.h"
 #include "WebAssembly.h"
 #include "llvm/ADT/APFloat.h"
+#include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/IR/Constants.h"
@@ -147,7 +148,10 @@ bool isFPToInt(Intrinsic::ID ID) {
 /// addition a result is cheaper than testing each magnitude.
 /// The terms are added as a balanced tree, so that the sum does not lengthen a
 /// chain of dependent additions (a dot product's accumulator) in the run.
-using Sums = DenseMap<Type *, SmallVector<Value *, 8>>;
+/// The sums are emitted in the order their types were first met: a map keyed by
+/// the type's address would order them by where the type was allocated, and the
+/// same input would compile to different code from one run to the next.
+using Sums = MapVector<Type *, SmallVector<Value *, 8>>;
 
 /// Marks the functions that hold the moved-out full checks of runs, whose own
 /// arithmetic must not be checked.
