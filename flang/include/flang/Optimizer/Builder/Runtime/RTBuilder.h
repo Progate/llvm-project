@@ -383,9 +383,12 @@ constexpr TypeBuilderFunc getModel<long double>() {
     // See TODO at the top of the file. This is configuring for the host system
     // - it might be incorrect when cross-compiling!
     constexpr size_t size = sizeof(long double);
-    static_assert(size == 16 || size == 10 || size == 8,
+    static_assert(size == 16 || size == 12 || size == 10 || size == 8,
                   "unsupported long double size");
-    if constexpr (size == 16)
+    // i386 stores the same x87 extended precision number as x86-64 in 12
+    // bytes instead of 16. Model it as x86-64 does, so that a 32-bit host
+    // generates the same runtime calls as a 64-bit one.
+    if constexpr (size == 16 || size == 12)
       return mlir::Float128Type::get(context);
     if constexpr (size == 10)
       return mlir::Float80Type::get(context);
