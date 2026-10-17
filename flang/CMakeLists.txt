@@ -79,7 +79,15 @@ endif()
 
 # WebAssembly (WASI) hosts are 32-bit. Allow them so that flang itself can be
 # built to run inside a WebAssembly runtime.
-if(CMAKE_SIZEOF_VOID_P EQUAL 4 AND NOT CMAKE_SYSTEM_NAME STREQUAL "WASI")
+#
+# Also allow a 32-bit host when the default target is wasm32. Lowering types the
+# calls into the Fortran runtime from the host's C++ types (std::size_t, long),
+# so a 64-bit host passes 64-bit integers where the wasm32 runtime takes 32-bit
+# ones. A 32-bit host (for example i686 Linux with LLVM_BUILD_32_BITS) has the
+# same ILP32 data model as wasm32, and generates the same code as flang running
+# inside a WebAssembly runtime.
+if(CMAKE_SIZEOF_VOID_P EQUAL 4 AND NOT CMAKE_SYSTEM_NAME STREQUAL "WASI"
+   AND NOT LLVM_DEFAULT_TARGET_TRIPLE MATCHES "^wasm32-")
   message(FATAL_ERROR "flang isn't supported on 32 bit CPUs")
 endif()
 
