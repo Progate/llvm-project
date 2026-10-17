@@ -27,7 +27,7 @@ define double @add(double %a, double %b) {
 ; CHECK-NEXT: [[D:%.*]] = fsub double %r, %r
 ; CHECK-NEXT: fcmp oeq double [[D]], 0.000000e+00
 ; CHECK: [[ST0:%.*]] = load i32, ptr addrspace(1) @__fe_status
-; CHECK-NEXT: and i32 [[ST0]], 32
+; CHECK-NEXT: and i32 [[ST0]], 1
 ; CHECK: br i1
 ; CHECK: call void @add.fe_check(double %r, double %a, double %b)
 ; CHECK: ret double %r
@@ -38,7 +38,7 @@ define double @add(double %a, double %b) {
 ; OUT-NEXT: [[FINITE:%.*]] = icmp ne i64 [[EXP]], 2047
 ; OUT-NEXT: br i1 [[FINITE]]
 ; OUT: [[ST:%.*]] = load i32, ptr addrspace(1) @__fe_status
-; OUT-NEXT: [[IX:%.*]] = and i32 [[ST]], 32
+; OUT-NEXT: [[IX:%.*]] = and i32 [[ST]], 1
 ; OUT-NEXT: icmp eq i32 [[IX]], 0
 ; OUT: [[B1:%.*]] = fsub double %r, %a
 ; OUT-NEXT: [[A1:%.*]] = fsub double %r, [[B1]]
@@ -47,7 +47,7 @@ define double @add(double %a, double %b) {
 ; OUT-NEXT: [[ERR:%.*]] = fadd double [[DA]], [[DB]]
 ; OUT: call void @__fe_add_f64(i64 {{%.*}}, i64 {{%.*}})
 ; OUT: fcmp one double [[ERR]], 0.000000e+00
-; OUT: or i32 {{%.*}}, 32
+; OUT: or i32 {{%.*}}, 1
 ; OUT: store i32 {{%.*}}, ptr addrspace(1) @__fe_status
   %r = fadd double %a, %b
   ret double %r
@@ -88,7 +88,7 @@ define double @mul_f64(double %a, double %b) {
 ; A finite nonzero dividend over zero raises division by zero inline.
 define double @div(double %a, double %b) {
 ; OUT-LABEL: define internal void @div.fe_check(
-; OUT: or i32 {{%.*}}, 4
+; OUT: or i32 {{%.*}}, 8
 ; OUT: call void @__fe_div_f64(
   %r = fdiv double %a, %b
   ret double %r
@@ -101,14 +101,14 @@ define double @sqrt(double %a) {
 ; CHECK-NEXT: fcmp uno double %r, %r
 ; OUT-LABEL: define internal void @sqrt.fe_check(
 ; OUT: [[NAN:%.*]] = fcmp uno double %r, %r
-; OUT: or i32 {{%.*}}, 1
+; OUT: or i32 {{%.*}}, 16
 ; OUT: call void @__fe_sqrt_f64(
   %r = call double @llvm.sqrt.f64(double %a)
   ret double %r
 }
 
-; Comparisons are quiet: invalid only for signaling NaNs, looked at only when
-; the operands are unordered. A constant operand needs no check.
+; Ordered comparisons raise invalid for any NaN, as riscv's flt and fle do. A
+; constant operand that is not a NaN needs no check.
 define i1 @compare(double %a, double %b) {
 ; CHECK-LABEL: @compare(
 ; CHECK: %r = fcmp olt double %a, %b
@@ -118,10 +118,26 @@ define i1 @compare(double %a, double %b) {
 ; OUT-LABEL: define internal void @compare.fe_check(
 ; OUT: [[UNO:%.*]] = fcmp uno double %a, %b
 ; OUT-NEXT: br i1 [[UNO]]
+; OUT-NOT: sub i64
+; OUT: or i32 {{%.*}}, 16
+  %r = fcmp olt double %a, %b
+  ret i1 %r
+}
+
+; Equality comparisons are quiet, as riscv's feq: invalid only for signaling
+; NaNs, looked at only when the operands are unordered.
+define i1 @compare_equal(double %a, double %b) {
+; CHECK-LABEL: @compare_equal(
+; CHECK: %r = fcmp oeq double %a, %b
+; CHECK-NEXT: fcmp uno double %a, %b
+; CHECK: call void @compare_equal.fe_check(double %a, double %b)
+; OUT-LABEL: define internal void @compare_equal.fe_check(
+; OUT: [[UNO:%.*]] = fcmp uno double %a, %b
+; OUT-NEXT: br i1 [[UNO]]
 ; OUT: sub i64 {{%.*}}, 9218868437227405313
 ; OUT: icmp ult i64 {{%.*}}, 2251799813685247
-; OUT: or i32 {{%.*}}, 1
-  %r = fcmp olt double %a, %b
+; OUT: or i32 {{%.*}}, 16
+  %r = fcmp oeq double %a, %b
   ret i1 %r
 }
 
@@ -159,7 +175,7 @@ define i32 @to_int(double %a) {
 ; CHECK: %r = fptosi double %a to i32
 ; CHECK-NEXT: fcmp ogt double %a, f0xC1E0000000200000
 ; CHECK-NEXT: fcmp olt double %a, f0x41E0000000000000
-; CHECK: select i1 {{%.*}}, i32 {{%.*}}, i32 1
+; CHECK: select i1 {{%.*}}, i32 {{%.*}}, i32 16
   %r = fptosi double %a to i32
   ret i32 %r
 }
@@ -292,7 +308,7 @@ define double @runs(double %a, double %b) {
 ; CHECK: load i32, ptr addrspace(1) @__fe_status
 ; CHECK-NOT: call i32 @fetestexcept
 ; CHECK: call void @runs.fe_check(double %x, double %a, double %b, double %y)
-; CHECK: %t = call i32 @fetestexcept(i32 61)
+; CHECK: %t = call i32 @fetestexcept(i32 31)
 ; CHECK: %z = fsub double %y, %b
 ; CHECK: call void @runs.fe_check.1(double %z, double %y, double %b)
 ; CHECK: ret double %z
@@ -303,7 +319,7 @@ define double @runs(double %a, double %b) {
 ; OUT: call void @__fe_sub_f64(
   %x = fmul double %a, %b
   %y = fadd double %x, %a
-  %t = call i32 @fetestexcept(i32 61)
+  %t = call i32 @fetestexcept(i32 31)
   %z = fsub double %y, %b
   ret double %z
 }
