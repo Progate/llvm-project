@@ -68,9 +68,15 @@ public:
 
   template <typename A>
   explicit constexpr RT_API_ATTRS BinaryFloatingPointNumber(A x) {
-    static_assert(sizeof raw_ <= sizeof x);
+    // Copy the bytes that hold the value. An x87 extended precision number
+    // has 80 bits, and its long double is 16 bytes on x86-64 but 12 bytes on
+    // i386, while RawType is 16 bytes on both.
+    static_assert((bits + CHAR_BIT - 1) / CHAR_BIT <= sizeof x);
+    constexpr std::size_t valueBytes{
+        sizeof raw_ < sizeof x ? sizeof raw_ : sizeof x};
+    raw_ = 0;
     runtime::memcpy(reinterpret_cast<void *>(&raw_),
-        reinterpret_cast<const void *>(&x), sizeof raw_);
+        reinterpret_cast<const void *>(&x), valueBytes);
   }
 
   constexpr RT_API_ATTRS int BiasedExponent() const {
