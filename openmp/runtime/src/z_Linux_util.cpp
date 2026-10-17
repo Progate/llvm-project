@@ -2346,7 +2346,9 @@ int __kmp_is_address_mapped(void *addr) {
     kiv.kve_start += 1;
   }
 #elif KMP_OS_WASI
-  found = (int)addr < (__builtin_wasm_memory_size(0) * PAGESIZE);
+  // memory.size counts WebAssembly pages, which are 64 KiB. PAGESIZE is the
+  // page size of the system's mmap (4 KiB on a Linux-compatible libc), not this.
+  found = (int)addr < (__builtin_wasm_memory_size(0) * 65536);
 #elif KMP_OS_AIX
 
   uint32_t loadQueryBufSize = 4096u; // Default loadquery buffer size.
