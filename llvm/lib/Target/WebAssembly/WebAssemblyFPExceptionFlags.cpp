@@ -54,6 +54,7 @@
 #include "llvm/IR/MDBuilder.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Pass.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/CodeExtractor.h"
@@ -62,6 +63,14 @@
 using namespace llvm;
 
 #define DEBUG_TYPE "wasm-fp-exception-flags"
+
+// The WebAssembly JS API limits a function to 1000 parameters, and engines
+// reject a module that declares more. A long run of operations can have that
+// many values live into its full checks.
+static cl::opt<unsigned> MaxOutlinedParams(
+    "wasm-fp-exception-max-outlined-params", cl::Hidden, cl::init(1000),
+    cl::desc("Keep the full checks of a run in place when moving them out "
+             "would take more parameters than this"));
 
 namespace {
 
@@ -1261,6 +1270,13 @@ bool Instrumenter::run() {
     for (SmallVector<BasicBlock *, 16> &Blocks : Cold) {
       CodeExtractor CE(Blocks, nullptr, false, nullptr, nullptr, nullptr, false,
                        false, nullptr, {}, "fe_check");
+      // Each value live into the region becomes a parameter, and each value
+      // live out of it a pointer parameter. Leave the checks in place rather
+      // than create a function that the engine cannot compile.
+      SetVector<Value *> Inputs, Outputs, Sinks;
+      CE.findInputsOutputs(Inputs, Outputs, Sinks);
+      if (Inputs.size() + Outputs.size() > MaxOutlinedParams)
+        continue;
       if (Function *Outlined = CE.extractCodeRegion(CEAC)) {
         Outlined->addFnAttr(Attribute::Cold);
         Outlined->addFnAttr(Attribute::NoInline);
