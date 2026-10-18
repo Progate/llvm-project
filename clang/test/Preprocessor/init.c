@@ -1690,6 +1690,12 @@
 // RUN: %clang_cc1 -E -dM -ffreestanding -fgnuc-version=4.2.1 -triple=wasm64-wasip3 \
 // RUN:   < /dev/null \
 // RUN:   | FileCheck -match-full-lines -check-prefixes=WEBASSEMBLY,WEBASSEMBLY64,WASI,WASIP3 %s
+// RUN: %clang_cc1 -E -dM -ffreestanding -fgnuc-version=4.2.1 -triple=wasm32-unknown-linux-musl \
+// RUN:   < /dev/null \
+// RUN:   | FileCheck -match-full-lines -check-prefixes=WASM-LINUX,WASM-LINUX-MUSL %s
+// RUN: %clang_cc1 -E -dM -ffreestanding -fgnuc-version=4.2.1 -triple=wasm32-linux-muslwali \
+// RUN:   < /dev/null \
+// RUN:   | FileCheck -match-full-lines -check-prefixes=WASM-LINUX,WASM-LINUX-WALI %s
 // RUN: %clang_cc1 -E -dM -ffreestanding -fgnuc-version=4.2.1 -triple=wasm32-unknown-unknown -x c++ \
 // RUN:   < /dev/null \
 // RUN:   | FileCheck -match-full-lines -check-prefixes=WEBASSEMBLY-CXX %s
@@ -2117,6 +2123,24 @@
 // WASI-NOT:#define __unix__
 // EMSCRIPTEN-NEXT:#define __unix 1
 // EMSCRIPTEN-NEXT:#define __unix__ 1
+// WASM-LINUX-NOT:#define __ELF__
+// WASM-LINUX-MUSL:#define _ILP32 1
+// WASM-LINUX-MUSL:#define __ILP32__ 1
+// WASM-LINUX-MUSL:#define __LONG_MAX__ 2147483647L
+// WASM-LINUX-WALI:#define __LONG_MAX__ 9223372036854775807L
+// WASM-LINUX:#define __linux 1
+// WASM-LINUX:#define __linux__ 1
+// WASM-LINUX:#define __unix 1
+// WASM-LINUX:#define __unix__ 1
+// WASM-LINUX-WALI:#define __wali__ 1
+// WASM-LINUX-NOT:#define __wasi__
+// WASM-LINUX-MUSL-NOT:#define __wali__
+// WASM-LINUX:#define __wasm 1
+// WASM-LINUX:#define __wasm32 1
+// WASM-LINUX:#define __wasm32__ 1
+// WASM-LINUX:#define __wasm__ 1
+// WASM-LINUX:#define linux 1
+// WASM-LINUX:#define unix 1
 // WASI-NEXT:#define __wasi__ 1
 // WASIP1-NEXT:#define __wasip1__ 1
 // WASIP2-NEXT:#define __wasip2__ 1

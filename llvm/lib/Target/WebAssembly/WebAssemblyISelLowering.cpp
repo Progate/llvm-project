@@ -2084,10 +2084,12 @@ WebAssemblyTargetLowering::LowerGlobalTLSAddress(SDValue Op,
 
   const GlobalValue *GV = GA->getGlobal();
 
-  // Currently only Emscripten supports dynamic linking with threads. Therefore,
-  // on other targets, if we have thread-local storage, only the local-exec
-  // model is possible.
-  auto model = Subtarget->getTargetTriple().isOSEmscripten()
+  // Currently only Emscripten and non-WALI wasm32 Linux support dynamic
+  // linking with threads. On both, TLS variables that may live in another
+  // module are addressed through the GOT (general-dynamic). On other targets,
+  // only the local-exec model is possible.
+  const llvm::Triple &TT = Subtarget->getTargetTriple();
+  auto model = (TT.isOSEmscripten() || (TT.isOSLinux() && !TT.isWALI()))
                    ? GV->getThreadLocalMode()
                    : GlobalValue::LocalExecTLSModel;
 
