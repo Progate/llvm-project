@@ -56,6 +56,7 @@ private:
                         llvm::opt::ArgStringList &CC1Args, BoundArch BA,
                         Action::OffloadKind DeviceOffloadKind) const override;
   RuntimeLibType GetDefaultRuntimeLibType() const override;
+  UnwindLibType GetUnwindLibType(const llvm::opt::ArgList &Args) const override;
   CXXStdlibType GetCXXStdlibType(const llvm::opt::ArgList &Args) const override;
   void
   AddClangSystemIncludeArgs(const llvm::opt::ArgList &DriverArgs,

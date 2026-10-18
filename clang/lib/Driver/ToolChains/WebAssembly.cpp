@@ -578,6 +578,19 @@ void WebAssembly::addClangTargetOptions(const ArgList &DriverArgs,
     CC1Args.push_back("-wasm-enable-eh");
   }
 
+  // wasm32 Linux (non-WALI) defaults to Wasm EH: the platform libc++/libc++abi/
+  // libunwind are built with it, so user code must use the same model or
+  // thrown exceptions abort. An explicit -mno-exception-handling still
+  // disables it.
+  if (IsNonWaliLinux(getTriple()) &&
+      !DriverArgs.hasFlag(options::OPT_mno_exception_handing,
+                          options::OPT_mexception_handing, false) &&
+      !HasEnabledFeaturesForWasmEHSjLj) {
+    EnableFeaturesForWasmEHSjLj();
+    CC1Args.push_back("-mllvm");
+    CC1Args.push_back("-wasm-enable-eh");
+  }
+
   for (const Arg *A : DriverArgs.filtered(options::OPT_mllvm)) {
     StringRef Opt = A->getValue(0);
     if (Opt.starts_with("-emscripten-cxx-exceptions-allowed")) {
@@ -619,6 +632,16 @@ void WebAssembly::addClangTargetOptions(const ArgList &DriverArgs,
 
 ToolChain::RuntimeLibType WebAssembly::GetDefaultRuntimeLibType() const {
   return ToolChain::RLT_CompilerRT;
+}
+
+ToolChain::UnwindLibType
+WebAssembly::GetUnwindLibType(const ArgList &Args) const {
+  // wasm32 Linux (non-WALI) uses libunwind: wasm exceptions are raised and
+  // caught through it, like on other Linux targets. An explicit -unwindlib
+  // still wins.
+  if (IsNonWaliLinux(getTriple()) && !Args.getLastArg(options::OPT_unwindlib_EQ))
+    return ToolChain::UNW_CompilerRT;
+  return ToolChain::GetUnwindLibType(Args);
 }
 
 ToolChain::CXXStdlibType
