@@ -214,6 +214,11 @@ enum : unsigned {
   WASM_DYLINK_EXPORT_INFO = 0x3,
   WASM_DYLINK_IMPORT_INFO = 0x4,
   WASM_DYLINK_RUNTIME_PATH = 0x5,
+  // The name the module is known by at runtime, corresponding to `DT_SONAME`
+  // in an ELF `.dynamic` section.  Not yet assigned by tool-conventions, so it
+  // uses the value farthest from the sequentially allocated ones above that
+  // still encodes as the single byte readers expect for a subsection type.
+  WASM_DYLINK_SONAME = 0x7f,
 };
 
 // Kind codes used in the custom "linking" section in the WASM_COMDAT_INFO
@@ -308,6 +313,7 @@ struct WasmDylinkInfo {
   std::vector<WasmDylinkImportInfo> ImportInfo;
   std::vector<WasmDylinkExportInfo> ExportInfo;
   std::vector<StringRef> RuntimePath;
+  StringRef SoName; // Empty if the module does not declare one
 };
 
 struct WasmProducerInfo {

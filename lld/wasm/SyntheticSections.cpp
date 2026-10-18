@@ -86,7 +86,7 @@ void DylinkSection::writeBody() {
     SubSection sub(WASM_DYLINK_NEEDED);
     writeUleb128(sub.os, ctx.sharedFiles.size(), "Needed");
     for (auto *so : ctx.sharedFiles)
-      writeStr(sub.os, llvm::sys::path::filename(so->getName()), "so name");
+      writeStr(sub.os, so->soName, "so name");
     sub.writeTo(os);
   }
 
@@ -150,6 +150,12 @@ void DylinkSection::writeBody() {
     writeUleb128(sub.os, ctx.arg.rpath.size(), "num rpath entries");
     for (const auto ref : ctx.arg.rpath)
       writeStr(sub.os, ref, "rpath entry");
+    sub.writeTo(os);
+  }
+
+  if (ctx.arg.shared && !ctx.arg.soName.empty()) {
+    SubSection sub(WASM_DYLINK_SONAME);
+    writeStr(sub.os, ctx.arg.soName, "soname");
     sub.writeTo(os);
   }
 }
