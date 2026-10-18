@@ -496,6 +496,17 @@ Symbol *SymbolTable::addSharedData(StringRef name, uint32_t flags,
   if (s->isDefined())
     return s;
 
+  // A shared library's export of a mutable wasm global reaches the dylink
+  // symbol table as DATA (WasmObjectFile reads every exported global as a
+  // data-bearing address). A raw shared global such as BrowserOS'
+  // __fe_status is nevertheless a real global at run time, so let an object
+  // importing the same name from env keep its undefined global: the link
+  // emits an env global import, and the loader binds it to the shared
+  // library's exported global.
+  if (auto *ug = dyn_cast<UndefinedGlobal>(s))
+    if (ug->importModule && *ug->importModule == "env")
+      return s;
+
   checkDataType(s, file);
   replaceSymbol<SharedData>(s, name, flags, file);
   return s;
@@ -817,9 +828,20 @@ Symbol *SymbolTable::addUndefinedGlobal(StringRef name,
                                    file, type);
   else if (auto *lazy = dyn_cast<LazySymbol>(s))
     lazy->extract();
-  else if (s->isDefined())
-    checkGlobalType(s, file, type);
-  else
+  else if (s->isDefined()) {
+    // A shared library's export of a mutable wasm global reaches the dylink
+    // symbol table as DATA (WasmObjectFile reads every exported global as a
+    // data-bearing address). A raw shared global such as BrowserOS'
+    // __fe_status is nevertheless a real global at run time, so let an object
+    // importing the same name from env keep its undefined global: the link
+    // emits an env global import, and the loader binds it to the shared
+    // library's exported global.
+    if (isa<SharedData>(s) && importModule && *importModule == "env")
+      replaceSymbol<UndefinedGlobal>(s, name, importName, importModule, flags,
+                                     file, type);
+    else
+      checkGlobalType(s, file, type);
+  } else
     updateExistingUndefined(s, flags, file, importName, importModule);
   return s;
 }
