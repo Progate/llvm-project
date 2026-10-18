@@ -51,6 +51,15 @@ static cl::opt<bool> WasmDisableExplicitLocals(
              " instruction output for test purposes only."),
     cl::init(false));
 
+// WebAssembly has no floating-point status register. On WASI the C library
+// keeps the IEEE 754 exception flags in the wasm global __fe_status, and the
+// code raises them itself (WebAssemblyFPExceptionFlags.cpp). Other targets have
+// no such library, so the default is to do it only on WASI.
+static cl::opt<cl::boolOrDefault> WasmFPExceptionFlags(
+    "wasm-raise-fp-exceptions", cl::Hidden,
+    cl::desc("WebAssembly: make floating-point operations raise the IEEE 754 "
+             "exception flags in the __fe_status global (default: on WASI)"));
+
 // Exception handling & setjmp-longjmp handling related options.
 
 // Emscripten's asm.js-style exception handling
@@ -98,6 +107,7 @@ LLVMInitializeWebAssemblyTarget() {
   initializeLowerGlobalDtorsLegacyPassPass(PR);
   initializeFixFunctionBitcastsPass(PR);
   initializeOptimizeReturnedPass(PR);
+  initializeWebAssemblyFPExceptionFlagsPass(PR);
   initializeWebAssemblyRefTypeMem2LocalPass(PR);
   initializeWebAssemblyArgumentMovePass(PR);
   initializeWebAssemblyAsmPrinterPass(PR);
@@ -537,6 +547,16 @@ void WebAssemblyPassConfig::addISelPrepare() {
 
   // This is a no-op if atomics are not used in the module
   addPass(createAtomicExpandLegacyPass());
+
+  // Raise the floating-point exception flags. This comes last so that it sees
+  // every operation that will run, including those of expanded atomics and
+  // reductions.
+  bool RaiseFPExceptionFlags =
+      WasmFPExceptionFlags == cl::boolOrDefault::BOU_UNSET
+          ? TM->getTargetTriple().isOSWASI()
+          : WasmFPExceptionFlags == cl::boolOrDefault::BOU_TRUE;
+  if (RaiseFPExceptionFlags)
+    addPass(createWebAssemblyFPExceptionFlags());
 
   TargetPassConfig::addISelPrepare();
 }
