@@ -1054,6 +1054,19 @@ bool WebAssemblyTargetLowering::isVectorLoadExtDesirable(SDValue ExtVal) const {
          (ExtT == MVT::v2i64 && MemT == MVT::v2i32);
 }
 
+bool WebAssemblyTargetLowering::shouldReduceLoadWidth(
+    SDNode *Load, ISD::LoadExtType ExtTy, EVT NewVT,
+    std::optional<unsigned> ByteOffset) const {
+  // A wasm global or local is read whole by global.get or local.get. Only a
+  // load of its full type is lowered that way (LowerLoad); a narrower,
+  // extending one would be selected as a load from linear memory at the
+  // symbol's address.
+  if (WebAssembly::isWasmVarAddressSpace(
+          cast<LoadSDNode>(Load)->getAddressSpace()))
+    return false;
+  return TargetLowering::shouldReduceLoadWidth(Load, ExtTy, NewVT, ByteOffset);
+}
+
 bool WebAssemblyTargetLowering::isOffsetFoldingLegal(
     const GlobalAddressSDNode *GA) const {
   // Wasm doesn't support function addresses with offsets
@@ -2071,10 +2084,12 @@ WebAssemblyTargetLowering::LowerGlobalTLSAddress(SDValue Op,
 
   const GlobalValue *GV = GA->getGlobal();
 
-  // Currently only Emscripten supports dynamic linking with threads. Therefore,
-  // on other targets, if we have thread-local storage, only the local-exec
-  // model is possible.
-  auto model = Subtarget->getTargetTriple().isOSEmscripten()
+  // Currently only Emscripten and non-WALI wasm32 Linux support dynamic
+  // linking with threads. On both, TLS variables that may live in another
+  // module are addressed through the GOT (general-dynamic). On other targets,
+  // only the local-exec model is possible.
+  const llvm::Triple &TT = Subtarget->getTargetTriple();
+  auto model = (TT.isOSEmscripten() || (TT.isOSLinux() && !TT.isWALI()))
                    ? GV->getThreadLocalMode()
                    : GlobalValue::LocalExecTLSModel;
 

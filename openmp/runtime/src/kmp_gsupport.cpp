@@ -152,6 +152,13 @@ void KMP_EXPAND_NAME(KMP_API_NAME_GOMP_BARRIER)(void) {
 // with another symbol __kmp_unnamed_critical_addr initialized with it's
 // address.
 extern kmp_critical_name *__kmp_unnamed_critical_addr;
+#if KMP_ARCH_WASM
+// z_Linux_asm.S has no WebAssembly section, so define the lock and the pointer
+// to it here. A static link drops GOMP_critical_start when nothing calls it,
+// but a shared libomp exports it and fails to load without this definition.
+static kmp_critical_name __kmp_gomp_critical_user = {0};
+kmp_critical_name *__kmp_unnamed_critical_addr = &__kmp_gomp_critical_user;
+#endif
 
 void KMP_EXPAND_NAME(KMP_API_NAME_GOMP_CRITICAL_START)(void) {
   int gtid = __kmp_entry_gtid();

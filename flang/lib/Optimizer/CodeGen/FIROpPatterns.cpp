@@ -108,7 +108,23 @@ mlir::Value ConvertFIRToLLVMPattern::getValueFromBox(
     attachTBAATag(loadOp, boxTy.fir, nullptr, p);
     return castOp;
   }
-  return mlir::LLVM::ExtractValueOp::create(rewriter, loc, box, boxValue);
+  mlir::Value field =
+      mlir::LLVM::ExtractValueOp::create(rewriter, loc, box, boxValue);
+  return castBoxField(loc, rewriter, resultTy, field);
+}
+
+/// The integer fields of a descriptor (elem_len and the dimensions) have the
+/// widths of the C types of ISO_Fortran_binding.h, which are narrower than the
+/// requested i64 on targets with 32-bit pointers. Extend or truncate an integer
+/// field read from a descriptor to the type the caller asked for.
+mlir::Value ConvertFIRToLLVMPattern::castBoxField(
+    mlir::Location loc, mlir::ConversionPatternRewriter &rewriter,
+    mlir::Type resultTy, mlir::Value field) const {
+  if (mlir::isa<mlir::IntegerType>(resultTy) &&
+      mlir::isa<mlir::IntegerType>(field.getType()) &&
+      resultTy != field.getType())
+    return integerCast(loc, rewriter, resultTy, field);
+  return field;
 }
 
 /// Method to construct code sequence to get the triple for dimension `dim`
@@ -146,24 +162,29 @@ mlir::Value ConvertFIRToLLVMPattern::loadDimFieldFromBox(
          "in memory");
   mlir::LLVM::GEPOp p = genGEP(loc, boxTy.llvm, rewriter, box, 0,
                                static_cast<int>(kDimsPosInBox), dim, off);
-  auto loadOp = mlir::LLVM::LoadOp::create(rewriter, loc, ty, p);
+  // Load the field with its own width and only then convert it: loading the
+  // requested type directly would read past a narrower field.
+  mlir::Type fldTy = getBoxEleTy(boxTy.llvm, {kDimsPosInBox, 0, off});
+  auto loadOp = mlir::LLVM::LoadOp::create(rewriter, loc, fldTy, p);
   attachTBAATag(loadOp, boxTy.fir, nullptr, p);
-  return loadOp;
+  return castBoxField(loc, rewriter, ty, loadOp);
 }
 
 mlir::Value ConvertFIRToLLVMPattern::getDimFieldFromBox(
     mlir::Location loc, TypePair boxTy, mlir::Value box, int dim, int off,
     mlir::Type ty, mlir::ConversionPatternRewriter &rewriter) const {
+  mlir::Type fldTy = getBoxEleTy(boxTy.llvm, {kDimsPosInBox, 0, off});
   if (mlir::isa<mlir::LLVM::LLVMPointerType>(box.getType())) {
     mlir::LLVM::GEPOp p = genGEP(loc, boxTy.llvm, rewriter, box, 0,
                                  static_cast<int>(kDimsPosInBox), dim, off);
-    auto loadOp = mlir::LLVM::LoadOp::create(rewriter, loc, ty, p);
+    auto loadOp = mlir::LLVM::LoadOp::create(rewriter, loc, fldTy, p);
     attachTBAATag(loadOp, boxTy.fir, nullptr, p);
-    return loadOp;
+    return castBoxField(loc, rewriter, ty, loadOp);
   }
-  return mlir::LLVM::ExtractValueOp::create(
+  mlir::Value field = mlir::LLVM::ExtractValueOp::create(
       rewriter, loc, box,
       llvm::ArrayRef<std::int64_t>{kDimsPosInBox, dim, off});
+  return castBoxField(loc, rewriter, ty, field);
 }
 
 mlir::Value ConvertFIRToLLVMPattern::getStrideFromBox(

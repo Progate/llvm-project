@@ -103,6 +103,7 @@ ENUM_CLASS(KindCode, none, defaultIntegerKind,
     dimArg, // this argument is DIM=
     likeMultiply, // for DOT_PRODUCT and MATMUL
     subscript, // address-sized integer
+    cSizeT, // integer of the size of C size_t on the target (SIZEOF)
     size, // default KIND= for SIZE(), UBOUND, &c.
     addressable, // for PRESENT(), &c.; anything (incl. procedure) but BOZ
     nullPointerType, // for ASSOCIATED(NULL())
@@ -143,6 +144,7 @@ static constexpr TypePattern DoublePrecisionComplex{
     ComplexType, KindCode::doublePrecision};
 static constexpr TypePattern QuadPrecision{RealType, KindCode::quadPrecision};
 static constexpr TypePattern SubscriptInt{IntType, KindCode::subscript};
+static constexpr TypePattern CSizeTInt{IntType, KindCode::cSizeT};
 
 // Match any kind of some intrinsic or derived types
 static constexpr TypePattern AnyInt{IntType, KindCode::any};
@@ -992,7 +994,7 @@ static const IntrinsicInterface genericIntrinsicFunction[]{
             OptionalDIM, // unless array is assumed-size
             SizeDefaultKIND},
         KINDInt, Rank::scalar, IntrinsicClass::inquiryFunction},
-    {"sizeof", {{"x", AnyData, Rank::anyOrAssumedRank}}, SubscriptInt,
+    {"sizeof", {{"x", AnyData, Rank::anyOrAssumedRank}}, CSizeTInt,
         Rank::scalar, IntrinsicClass::inquiryFunction},
     {"spacing", {{"x", SameReal}}, SameReal},
     {"spread",
@@ -2651,6 +2653,15 @@ std::optional<SpecificCall> IntrinsicInterface::Match(
       CHECK(*category == TypeCategory::Integer);
       resultType =
           DynamicType{TypeCategory::Integer, defaults.subscriptIntegerKind()};
+      break;
+    case KindCode::cSizeT:
+      // SIZEOF (and C_SIZEOF, which ISO_C_BINDING defines from it) returns
+      // INTEGER(C_SIZE_T), whose kind follows the target's pointer width.
+      CHECK(result.categorySet == IntType);
+      CHECK(*category == TypeCategory::Integer);
+      resultType = DynamicType{TypeCategory::Integer,
+          static_cast<int>(
+              context.targetCharacteristics().integerKindForPointer())};
       break;
     case KindCode::size:
       CHECK(result.categorySet == IntType);

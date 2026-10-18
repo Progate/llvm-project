@@ -76,6 +76,13 @@ static bool TargetBuildsComponents(const llvm::Triple &TargetTriple) {
          TargetTriple.getOSName() != "wasi";
 }
 
+// wasm32 Linux that is not WALI (e.g. wasm32-unknown-linux-musl). Such targets
+// use a Linux-style layout (Debian multiarch) and dynamically linked PIE
+// executables by default, unlike the WASI-style layout used by WALI.
+static bool IsNonWaliLinux(const llvm::Triple &T) {
+  return T.isOSLinux() && !T.isWALI();
+}
+
 static bool WantsPthread(const llvm::Triple &Triple, const ArgList &Args) {
   bool WantsPthread =
       Args.hasFlag(options::OPT_pthread, options::OPT_no_pthread, false);
@@ -118,6 +125,8 @@ void wasm::Linker::ConstructJob(Compilation &C, const JobAction &JA,
   else
     CmdArgs.push_back("wasm32");
 
+  const bool IsWasmLinux = IsNonWaliLinux(ToolChain.getTriple());
+
   if (Args.hasArg(options::OPT_s))
     CmdArgs.push_back("--strip-all");
 
@@ -135,63 +144,131 @@ void wasm::Linker::ConstructJob(Compilation &C, const JobAction &JA,
 
   ToolChain.AddFilePathLibArgs(Args, CmdArgs);
 
-  bool IsCommand = true;
-  const char *Crt1;
-  const char *Entry = nullptr;
+  if (IsWasmLinux) {
+    // wasm32 Linux (non-WALI) uses a Linux-style dynamic linking model:
+    // dynamically linked PIE executables by default, non-PIC static
+    // executables with -static (or -no-pie), and -shared shared libraries.
+    bool IsShared = Args.hasArg(options::OPT_shared);
+    bool IsPIE =
+        Args.hasFlag(options::OPT_pie, options::OPT_no_pie, true);
+    // There is no non-PIE dynamically linked executable on wasm (dynamic
+    // linking requires PIC code), so -no-pie selects the static form.
+    bool IsStatic = !IsShared && (Args.hasArg(options::OPT_static) || !IsPIE);
 
-  // When -shared is specified, use the reactor exec model unless
-  // specified otherwise.
-  if (Args.hasArg(options::OPT_shared))
-    IsCommand = false;
-
-  if (const Arg *A = Args.getLastArg(options::OPT_mexec_model_EQ)) {
-    StringRef CM = A->getValue();
-    if (CM == "command") {
-      IsCommand = true;
-    } else if (CM == "reactor") {
-      IsCommand = false;
-    } else {
-      ToolChain.getDriver().Diag(diag::err_drv_invalid_argument_to_option)
-          << CM << A->getOption().getName();
+    if (!Args.hasArg(options::OPT_nostdlib, options::OPT_nostartfiles) &&
+        !IsShared) {
+      CmdArgs.push_back(Args.MakeArgString(
+          ToolChain.GetFilePath(IsStatic ? "crt1.o" : "Scrt1.o")));
+      CmdArgs.push_back(Args.MakeArgString(ToolChain.GetFilePath("crti.o")));
     }
-  }
 
-  if (IsCommand) {
-    // If crt1-command.o exists, it supports new-style commands, so use it.
-    // Otherwise, use the old crt1.o. This is a temporary transition measure.
-    // Once WASI libc no longer needs to support LLVM versions which lack
-    // support for new-style command, it can make crt1.o the same as
-    // crt1-command.o. And once LLVM no longer needs to support WASI libc
-    // versions before that, it can switch to using crt1-command.o.
-    Crt1 = "crt1.o";
-    if (ToolChain.GetFilePath("crt1-command.o") != "crt1-command.o")
-      Crt1 = "crt1-command.o";
+    if (IsShared) {
+      CmdArgs.push_back("-shared");
+      CmdArgs.push_back("--experimental-pic");
+      // Like ELF -shared, unresolved names are resolved at run time.
+      CmdArgs.push_back("--unresolved-symbols=import-dynamic");
+    } else if (!IsStatic) {
+      CmdArgs.push_back("-pie");
+      CmdArgs.push_back("--experimental-pic");
+    } else {
+      CmdArgs.push_back("-static");
+    }
+
+    if (!IsStatic) {
+      // Each --export-if-defined takes a single name; a comma-separated list
+      // would be treated as one (nonexistent) name. `_start` is exported
+      // automatically as the entry point.
+      for (StringRef Sym : {"__wasm_apply_data_relocs", "__wasm_call_ctors",
+                            "__wasm_init_tls", "__tls_size", "__tls_align"})
+        CmdArgs.push_back(
+            Args.MakeArgString("--export-if-defined=" + Sym));
+      if (Args.hasArg(options::OPT_rdynamic))
+        CmdArgs.push_back("--export-dynamic");
+    }
+
+    AddLinkerInputs(ToolChain, Inputs, Args, CmdArgs, JA);
+
+    if (!Args.hasArg(options::OPT_nostdlib, options::OPT_nostartfiles) &&
+        !IsShared)
+      CmdArgs.push_back(Args.MakeArgString(ToolChain.GetFilePath("crtn.o")));
+
+    if (WantsSharedMemory(ToolChain.getTriple(), Args)) {
+      CmdArgs.push_back("--shared-memory");
+      CmdArgs.push_back("--import-memory");
+      CmdArgs.push_back("--max-memory=4294967296");
+    }
   } else {
-    Crt1 = "crt1-reactor.o";
-    Entry = "_initialize";
+    bool IsCommand = true;
+    const char *Crt1;
+    const char *Entry = nullptr;
+
+    // When -shared is specified, use the reactor exec model unless
+    // specified otherwise.
+    if (Args.hasArg(options::OPT_shared))
+      IsCommand = false;
+
+    if (const Arg *A = Args.getLastArg(options::OPT_mexec_model_EQ)) {
+      StringRef CM = A->getValue();
+      if (CM == "command") {
+        IsCommand = true;
+      } else if (CM == "reactor") {
+        IsCommand = false;
+      } else {
+        ToolChain.getDriver().Diag(diag::err_drv_invalid_argument_to_option)
+            << CM << A->getOption().getName();
+      }
+    }
+
+    if (IsCommand) {
+      // If crt1-command.o exists, it supports new-style commands, so use it.
+      // Otherwise, use the old crt1.o. This is a temporary transition measure.
+      // Once WASI libc no longer needs to support LLVM versions which lack
+      // support for new-style command, it can make crt1.o the same as
+      // crt1-command.o. And once LLVM no longer needs to support WASI libc
+      // versions before that, it can switch to using crt1-command.o.
+      Crt1 = "crt1.o";
+      if (ToolChain.GetFilePath("crt1-command.o") != "crt1-command.o")
+        Crt1 = "crt1-command.o";
+    } else {
+      Crt1 = "crt1-reactor.o";
+      Entry = "_initialize";
+    }
+
+    if (!Args.hasArg(options::OPT_nostdlib, options::OPT_nostartfiles))
+      CmdArgs.push_back(Args.MakeArgString(ToolChain.GetFilePath(Crt1)));
+    if (Entry) {
+      CmdArgs.push_back(Args.MakeArgString("--entry"));
+      CmdArgs.push_back(Args.MakeArgString(Entry));
+    }
+
+    if (Args.hasArg(options::OPT_shared))
+      CmdArgs.push_back(Args.MakeArgString("-shared"));
+
+    AddLinkerInputs(ToolChain, Inputs, Args, CmdArgs, JA);
+
+    if (WantsCooperativeMultithreading(ToolChain.getTriple(), Args))
+      CmdArgs.push_back("--cooperative-threading");
+
+    if (WantsSharedMemory(ToolChain.getTriple(), Args))
+      CmdArgs.push_back("--shared-memory");
   }
-
-  if (!Args.hasArg(options::OPT_nostdlib, options::OPT_nostartfiles))
-    CmdArgs.push_back(Args.MakeArgString(ToolChain.GetFilePath(Crt1)));
-  if (Entry) {
-    CmdArgs.push_back(Args.MakeArgString("--entry"));
-    CmdArgs.push_back(Args.MakeArgString(Entry));
-  }
-
-  if (Args.hasArg(options::OPT_shared))
-    CmdArgs.push_back(Args.MakeArgString("-shared"));
-
-  AddLinkerInputs(ToolChain, Inputs, Args, CmdArgs, JA);
-
-  if (WantsCooperativeMultithreading(ToolChain.getTriple(), Args))
-    CmdArgs.push_back("--cooperative-threading");
-
-  if (WantsSharedMemory(ToolChain.getTriple(), Args))
-    CmdArgs.push_back("--shared-memory");
 
   if (!Args.hasArg(options::OPT_nostdlib, options::OPT_nodefaultlibs)) {
+    // As on other targets (see tools::gnutools::Linker::ConstructJob), the
+    // flang driver links the Fortran runtime and libm.
+    if (ToolChain.getDriver().IsFlangMode()) {
+      ToolChain.addFortranRuntimeLibraryPath(Args, CmdArgs);
+      ToolChain.addFortranRuntimeLibs(Args, CmdArgs);
+      CmdArgs.push_back("-lm");
+    }
     if (ToolChain.ShouldLinkCXXStdlib(Args))
       ToolChain.AddCXXStdlibLibArgs(Args, CmdArgs);
+
+    // As on other targets, -fopenmp links the OpenMP runtime, before -lpthread
+    // because the runtime is built on pthreads.
+    bool StaticOpenMP = Args.hasArg(options::OPT_static_openmp) &&
+                        !Args.hasArg(options::OPT_static);
+    addOpenMPRuntime(C, CmdArgs, ToolChain, Args, StaticOpenMP);
 
     if (WantsPthread(ToolChain.getTriple(), Args))
       CmdArgs.push_back("-lpthread");
@@ -279,7 +356,29 @@ WebAssembly::WebAssembly(const Driver &D, const llvm::Triple &Triple,
   getProgramPaths().push_back(getDriver().Dir);
 
   auto SysRoot = getDriver().SysRoot;
-  if (getTriple().getOS() == llvm::Triple::UnknownOS) {
+  if (IsNonWaliLinux(getTriple())) {
+    // wasm32 Linux (non-WALI) uses the Debian multiarch layout, shared with
+    // the BrowserOS filesystem: libraries live under /usr/lib/<multiarch>,
+    // with -threads selecting the shared-memory variant.
+    UseThreadsRuntimeDir = WantsPthread(Triple, Args);
+    if (UseThreadsRuntimeDir) {
+      // The runtime dir below is searched by getCompilerRT before the plain
+      // lib/<triple> dir, so -pthread picks libclang_rt.builtins.a (and
+      // flang_rt) built with atomics. The base ToolChain ctor already pushed
+      // the non-threads runtime dir, and virtual dispatch does not reach this
+      // class from inside a base constructor.
+      SmallString<128> ThreadsRT(getDriver().ResourceDir);
+      llvm::sys::path::append(ThreadsRT, "lib", getTriple().str(), "threads");
+      getLibraryPaths().insert(getLibraryPaths().begin(),
+                               std::string(ThreadsRT));
+    }
+    std::string MultiarchTriple =
+        getMultiarchTriple(getDriver(), Triple, SysRoot);
+    if (UseThreadsRuntimeDir)
+      MultiarchTriple += "-threads";
+    AppendLibDirAndLTODir(getFilePaths(), *this, Args,
+                          SysRoot + "/usr/lib/" + MultiarchTriple);
+  } else if (getTriple().getOS() == llvm::Triple::UnknownOS) {
     // Theoretically an "unknown" OS should mean no standard libraries, however
     // it could also mean that a custom set of libraries is in use, so just add
     // /lib to the search path. Disable multiarch in this case, to discourage
@@ -312,6 +411,20 @@ const char *WebAssembly::getDefaultLinker() const {
   return "wasm-ld";
 }
 
+std::optional<std::string> WebAssembly::getRuntimePath() const {
+  // On wasm32 Linux (non-WALI) the thread-enabled runtime libraries
+  // (libclang_rt.builtins.a, flang_rt) live in a `threads` subdirectory of the
+  // per-target library dir, matching /usr/lib/wasm32-linux-musl-threads.
+  if (IsNonWaliLinux(getTriple())) {
+    SmallString<128> P(getDriver().ResourceDir);
+    llvm::sys::path::append(P, "lib", getTriple().str());
+    if (UseThreadsRuntimeDir)
+      llvm::sys::path::append(P, "threads");
+    return std::string(P);
+  }
+  return ToolChain::getRuntimePath();
+}
+
 bool WebAssembly::IsMathErrnoDefault() const { return false; }
 
 bool WebAssembly::IsObjCNonFragileABIDefault() const { return true; }
@@ -321,7 +434,12 @@ bool WebAssembly::UseObjCMixedDispatch() const { return true; }
 bool WebAssembly::isPICDefault() const { return false; }
 
 bool WebAssembly::isPIEDefault(const llvm::opt::ArgList &Args) const {
-  return false;
+  // wasm32 Linux (non-WALI) links executables as PIE by default, like musl on
+  // other architectures. -static and -no-pie produce non-PIC code since wasm
+  // has no non-PIC dynamic executables.
+  return IsNonWaliLinux(getTriple()) &&
+         Args.hasFlag(options::OPT_pie, options::OPT_no_pie, true) &&
+         !Args.hasArg(options::OPT_static);
 }
 
 bool WebAssembly::isPICDefaultForced() const { return false; }
@@ -543,6 +661,13 @@ void WebAssembly::AddClangSystemIncludeArgs(const ArgList &DriverArgs,
     return;
   }
 
+  if (IsNonWaliLinux(getTriple())) {
+    // wasm32 Linux (non-WALI) headers live in /usr/include, matching the
+    // Debian-style sysroot layout used for libraries.
+    addSystemInclude(DriverArgs, CC1Args, D.SysRoot + "/usr/include");
+    return;
+  }
+
   if (getTriple().getOS() != llvm::Triple::UnknownOS) {
     const std::string MultiarchTriple =
         getMultiarchTriple(D, getTriple(), D.SysRoot);
@@ -611,6 +736,14 @@ void WebAssembly::addLibCxxIncludePaths(
   const Driver &D = getDriver();
   std::string SysRoot = computeSysRoot();
   std::string LibPath = SysRoot + "/include";
+
+  if (IsNonWaliLinux(getTriple())) {
+    // wasm32 Linux (non-WALI) libc++ headers live in /usr/include/c++/v1,
+    // matching the Debian libc++ layout.
+    addSystemInclude(DriverArgs, CC1Args, SysRoot + "/usr/include/c++/v1");
+    return;
+  }
+
   const std::string MultiarchTriple =
       getMultiarchTriple(D, getTriple(), SysRoot);
   bool IsKnownOs = (getTriple().getOS() != llvm::Triple::UnknownOS);

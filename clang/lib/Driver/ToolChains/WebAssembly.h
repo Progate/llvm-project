@@ -81,6 +81,11 @@ private:
                                  const llvm::Triple &TargetTriple,
                                  StringRef SysRoot) const override;
 
+  std::optional<std::string> getRuntimePath() const override;
+
+  // True when -pthread selects the threads runtime dir on wasm32 Linux.
+  bool UseThreadsRuntimeDir = false;
+
   void addLibCxxIncludePaths(const llvm::opt::ArgList &DriverArgs,
                              llvm::opt::ArgStringList &CC1Args) const;
   void addLibStdCXXIncludePaths(const llvm::opt::ArgList &DriverArgs,
