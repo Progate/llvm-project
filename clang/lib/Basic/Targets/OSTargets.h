@@ -998,7 +998,11 @@ class LLVM_LIBRARY_VISIBILITY WALITargetInfo
     // Linux defines; list based off of gcc output
     DefineStd(Builder, "unix", Opts);
     DefineStd(Builder, "linux", Opts);
-    Builder.defineMacro("__wali__");
+    // __wali__ is only for the WALI environment (wasm32-linux-muslwali).
+    // Plain wasm32 linux (e.g. wasm32-unknown-linux-musl) is a non-WALI target
+    // that must not claim the WALI ABI.
+    if (Triple.isWALI())
+      Builder.defineMacro("__wali__");
   }
 
 public:

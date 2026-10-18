@@ -1,5 +1,7 @@
 ; RUN: llc < %s -mtriple=wasm32-wasip1 -stop-after=wasm-fp-exception-flags | FileCheck %s
 ; RUN: llc < %s -mtriple=wasm32-wasip1 -stop-after=wasm-fp-exception-flags | FileCheck %s --check-prefix=OUT
+; RUN: llc < %s -mtriple=wasm32-unknown-linux-musl -stop-after=wasm-fp-exception-flags | FileCheck %s
+; RUN: llc < %s -mtriple=wasm32-linux-muslwali -stop-after=wasm-fp-exception-flags | FileCheck %s --check-prefix=OFF
 ; RUN: llc < %s -mtriple=wasm32-unknown-unknown -wasm-raise-fp-exceptions -stop-after=wasm-fp-exception-flags | FileCheck %s
 ; RUN: llc < %s -mtriple=wasm32-unknown-unknown -stop-after=wasm-fp-exception-flags | FileCheck %s --check-prefix=OFF
 ; RUN: llc < %s -mtriple=wasm32-wasip1 -wasm-raise-fp-exceptions=false -stop-after=wasm-fp-exception-flags | FileCheck %s --check-prefix=OFF
