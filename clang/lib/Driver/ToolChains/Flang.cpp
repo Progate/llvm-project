@@ -612,6 +612,21 @@ void Flang::addTargetOptions(const ArgList &Args, ArgStringList &CmdArgs,
     getTargetFeatures(D, Triple, Args, CmdArgs, /*ForAs*/ false);
     AddAMDGPUTargetArgs(Args, CmdArgs, BA, DeviceOffloadKind);
     break;
+  case llvm::Triple::wasm32:
+  case llvm::Triple::wasm64:
+    getTargetFeatures(D, Triple, Args, CmdArgs, /*ForAs*/ false);
+    // As in WebAssembly::addClangTargetOptions, threads (the wasi-threads
+    // environment or -pthread) need the features shared memory relies on;
+    // without them wasm-ld refuses to link the objects with --shared-memory.
+    if ((Triple.isOSWASI() && Triple.getEnvironmentName() == "threads") ||
+        Args.hasFlag(options::OPT_pthread, options::OPT_no_pthread, false)) {
+      for (const char *Feature :
+           {"+atomics", "+bulk-memory", "+mutable-globals", "+sign-ext"}) {
+        CmdArgs.push_back("-target-feature");
+        CmdArgs.push_back(Feature);
+      }
+    }
+    break;
   case llvm::Triple::nvptx:
   case llvm::Triple::nvptx64:
     AddNVPTXTargetArgs(Args, CmdArgs, BA, DeviceOffloadKind);

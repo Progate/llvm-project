@@ -131,7 +131,7 @@ public:
   IeeeFeatures &ieeeFeatures() { return ieeeFeatures_; }
   const IeeeFeatures &ieeeFeatures() const { return ieeeFeatures_; }
 
-  std::size_t integerKindForPointer() { return integerKindForPointer_; }
+  std::size_t integerKindForPointer() const { return integerKindForPointer_; }
   void set_integerKindForPointer(std::size_t newKind) {
     integerKindForPointer_ = newKind;
   }
