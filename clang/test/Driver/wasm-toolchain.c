@@ -334,7 +334,7 @@
 // RUN:   | FileCheck -check-prefix=LINK_LINUX_MUSL %s
 // LINK_LINUX_MUSL: "-cc1"{{.*}} "-o" "[[temp:[^"]*]]"
 // LINK_LINUX_MUSL-NOT: "-fvisibility=hidden"
-// LINK_LINUX_MUSL: wasm-ld{{.*}}" "-m" "wasm32"{{.*}} "-L/foo/usr/lib/wasm32-linux-musl" "{{[^"]*}}Scrt1.o" "{{[^"]*}}crti.o" "-pie" "--experimental-pic" "--import-memory" "--import-table"{{.*}} "[[temp]]" "{{[^"]*}}crtn.o" "-lc" "{{.*[/\\]}}wasm32-unknown-linux-musl{{[/\\]}}libclang_rt.builtins.a" "-o" "a.out"
+// LINK_LINUX_MUSL: wasm-ld{{.*}}" "-m" "wasm32"{{.*}} "-L/foo/usr/lib/wasm32-linux-musl" "{{[^"]*}}Scrt1.o" "{{[^"]*}}crti.o" "-pie" "--experimental-pic" "--import-memory" "--import-table"{{.*}} "[[temp]]" "{{[^"]*}}crtn.o" "-lc" "{{.*[/\\]}}wasm32-unknown-linux-musl{{[/\\]}}libclang_rt.builtins.a" "-lunwind" "-o" "a.out"
 
 // `-static` (and `-no-pie`) selects a non-PIC static executable on
 // `wasm32-unknown-linux-musl`.
@@ -361,7 +361,7 @@
 // RUN:   | FileCheck -check-prefix=LINK_LINUX_MUSL_THREADS %s
 // LINK_LINUX_MUSL_THREADS: wasm-ld{{.*}}" "-m" "wasm32"{{.*}} "-L/foo/usr/lib/wasm32-linux-musl-threads"
 // LINK_LINUX_MUSL_THREADS-SAME: "-pie"
-// LINK_LINUX_MUSL_THREADS-SAME: "--shared-memory" "--import-memory" "--max-memory=4294967296" "-lpthread" "-lc" "{{.*[/\\]}}wasm32-unknown-linux-musl{{(/threads/)?}}libclang_rt.builtins.a"
+// LINK_LINUX_MUSL_THREADS-SAME: "--shared-memory" "--import-memory" "--max-memory=4294967296" "-lpthread" "-lc" "{{.*[/\\]}}wasm32-unknown-linux-musl{{(/threads/)?}}libclang_rt.builtins.a" "-lunwind"
 
 // `-rdynamic` on `wasm32-unknown-linux-musl` exports symbols to the dynamic
 // linker.
@@ -369,3 +369,25 @@
 // RUN: %clang -### --target=wasm32-unknown-linux-musl --sysroot=/foo -rdynamic %s 2>&1 \
 // RUN:   | FileCheck -check-prefix=LINK_LINUX_MUSL_RDYNAMIC %s
 // LINK_LINUX_MUSL_RDYNAMIC: wasm-ld{{.*}}"{{.*}} "--export-dynamic" {{.*}}
+
+// `wasm32-unknown-linux-musl` defaults to Wasm EH (the platform libc++/
+// libc++abi/libunwind are built with it) and links libunwind like other Linux
+// targets.
+
+// RUN: %clang -### --target=wasm32-unknown-linux-musl --sysroot=/foo %s 2>&1 \
+// RUN:   | FileCheck -check-prefix=LINUX_MUSL_EH %s
+// LINUX_MUSL_EH: "-cc1"{{.*}} "-exception-model=wasm"
+// LINUX_MUSL_EH: wasm-ld{{.*}} "-lunwind"
+
+// `-mno-exception-handling` still opts out of Wasm EH.
+
+// RUN: %clang -### --target=wasm32-unknown-linux-musl --sysroot=/foo -mno-exception-handling %s 2>&1 \
+// RUN:   | FileCheck -check-prefix=LINUX_MUSL_NO_EH %s
+// LINUX_MUSL_NO_EH-NOT: "-exception-model=wasm"
+
+// WASI targets keep their historical behavior (no unwind lib, no default Wasm
+// EH).
+
+// RUN: %clang -### --target=wasm32-wasip1 --sysroot=/foo %s 2>&1 \
+// RUN:   | FileCheck -check-prefix=WASIP1_NO_UNWIND %s
+// WASIP1_NO_UNWIND-NOT: unwind

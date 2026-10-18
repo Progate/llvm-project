@@ -2452,16 +2452,21 @@ static void AddUnwindLibrary(const ToolChain &TC, const Driver &D,
     return;
   }
 
-  // Targets that don't use unwind libraries.
+  // Targets that don't use unwind libraries. wasm32 Linux (non-WALI) does use
+  // libunwind: wasm exceptions are raised and caught through it.
   if ((TC.getTriple().isAndroid() && UNW == ToolChain::UNW_Libgcc) ||
-      TC.getTriple().isOSIAMCU() || TC.getTriple().isOSBinFormatWasm() ||
+      TC.getTriple().isOSIAMCU() ||
+      (TC.getTriple().isOSBinFormatWasm() &&
+       !(TC.getTriple().isOSLinux() && !TC.getTriple().isWALI())) ||
       TC.getTriple().isWindowsMSVCEnvironment() || UNW == ToolChain::UNW_None)
     return;
 
   LibGccType LGT = getLibGccType(TC, D, Args);
+  // wasm-ld does not support --as-needed.
   bool AsNeeded = LGT == LibGccType::UnspecifiedLibGcc &&
                   (UNW == ToolChain::UNW_CompilerRT || !D.CCCIsCXX()) &&
                   !TC.getTriple().isAndroid() &&
+                  !TC.getTriple().isOSBinFormatWasm() &&
                   !TC.getTriple().isOSCygMing() && !TC.getTriple().isOSAIX();
   if (AsNeeded)
     addAsNeededOption(TC, Args, CmdArgs, true);
