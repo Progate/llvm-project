@@ -334,7 +334,7 @@
 // RUN:   | FileCheck -check-prefix=LINK_LINUX_MUSL %s
 // LINK_LINUX_MUSL: "-cc1"{{.*}} "-o" "[[temp:[^"]*]]"
 // LINK_LINUX_MUSL-NOT: "-fvisibility=hidden"
-// LINK_LINUX_MUSL: wasm-ld{{.*}}" "-m" "wasm32"{{.*}} "-L/foo/usr/lib/wasm32-linux-musl" "{{[^"]*}}Scrt1.o" "{{[^"]*}}crti.o" "-pie" "--experimental-pic"{{.*}} "[[temp]]" "{{[^"]*}}crtn.o" "-lc" "{{.*[/\\]}}wasm32-unknown-linux-musl{{[/\\]}}libclang_rt.builtins.a" "-o" "a.out"
+// LINK_LINUX_MUSL: wasm-ld{{.*}}" "-m" "wasm32"{{.*}} "-L/foo/usr/lib/wasm32-linux-musl" "{{[^"]*}}Scrt1.o" "{{[^"]*}}crti.o" "-pie" "--experimental-pic" "--import-memory" "--import-table"{{.*}} "[[temp]]" "{{[^"]*}}crtn.o" "-lc" "{{.*[/\\]}}wasm32-unknown-linux-musl{{[/\\]}}libclang_rt.builtins.a" "-o" "a.out"
 
 // `-static` (and `-no-pie`) selects a non-PIC static executable on
 // `wasm32-unknown-linux-musl`.
@@ -350,7 +350,7 @@
 
 // RUN: %clang -### --target=wasm32-unknown-linux-musl --sysroot=/foo -shared %s 2>&1 \
 // RUN:   | FileCheck -check-prefix=LINK_LINUX_MUSL_SHARED %s
-// LINK_LINUX_MUSL_SHARED: wasm-ld{{.*}}" "-m" "wasm32"{{.*}} "-L/foo/usr/lib/wasm32-linux-musl" "-shared" "--experimental-pic" "--unresolved-symbols=import-dynamic" {{.*}}
+// LINK_LINUX_MUSL_SHARED: wasm-ld{{.*}}" "-m" "wasm32"{{.*}} "-L/foo/usr/lib/wasm32-linux-musl" "-shared" "--experimental-pic" "--unresolved-symbols=import-dynamic" "--import-memory" "--import-table" {{.*}}
 // LINK_LINUX_MUSL_SHARED-NOT: crt1.o
 // LINK_LINUX_MUSL_SHARED-NOT: crti.o
 

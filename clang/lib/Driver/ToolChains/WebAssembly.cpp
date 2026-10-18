@@ -175,6 +175,10 @@ void wasm::Linker::ConstructJob(Compilation &C, const JobAction &JA,
     }
 
     if (!IsStatic) {
+      // PIC modules take the memory and function table from the loader: the
+      // loader decides where each module's data and table entries go.
+      CmdArgs.push_back("--import-memory");
+      CmdArgs.push_back("--import-table");
       // Each --export-if-defined takes a single name; a comma-separated list
       // would be treated as one (nonexistent) name. `_start` is exported
       // automatically as the entry point.
