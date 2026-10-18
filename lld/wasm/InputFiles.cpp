@@ -462,6 +462,9 @@ void SharedFile::parse() {
       case WASM_SYMBOL_TYPE_DATA:
         s = symtab->addSharedData(name, flags, this);
         break;
+      case WASM_SYMBOL_TYPE_GLOBAL:
+        s = symtab->addSharedGlobal(name, flags, this, wasmSym.GlobalType);
+        break;
       case WASM_SYMBOL_TYPE_TAG:
         s = symtab->addSharedTag(name, flags, this, wasmSym.Signature);
         break;

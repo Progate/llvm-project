@@ -1530,6 +1530,18 @@ Error WasmObjectFile::parseExportSection(ReadContext &Ctx) {
       if (!isValidGlobalIndex(Ex.Index))
         return make_error<GenericBinaryError>("invalid global export",
                                               object_error::parse_failed);
+      const wasm::WasmGlobalType *Type = getGlobalType(Ex.Index);
+      // Under the dynamic linking convention immutable global exports
+      // represent exported data symbols: the exported value is the symbol's
+      // offset into linear memory and is relocated by the dynamic linker.
+      // Mutable global exports, on the other hand, are real WebAssembly
+      // globals that are shared between modules as-is.
+      if (HasDylinkSection && Type && Type->Mutable) {
+        Info.Kind = wasm::WASM_SYMBOL_TYPE_GLOBAL;
+        Info.ElementIndex = Ex.Index;
+        GlobalType = Type;
+        break;
+      }
       Info.Kind = wasm::WASM_SYMBOL_TYPE_DATA;
       uint64_t Offset = 0;
       if (isDefinedGlobalIndex(Ex.Index)) {
@@ -1649,6 +1661,23 @@ WasmObjectFile::getDefinedFunction(uint32_t Index) const {
 const wasm::WasmGlobal &WasmObjectFile::getDefinedGlobal(uint32_t Index) const {
   assert(isDefinedGlobalIndex(Index));
   return Globals[Index - NumImportedGlobals];
+}
+
+const wasm::WasmGlobalType *
+WasmObjectFile::getGlobalType(uint32_t Index) const {
+  if (!isValidGlobalIndex(Index))
+    return nullptr;
+  if (isDefinedGlobalIndex(Index))
+    return &getDefinedGlobal(Index).Type;
+  // The index refers to an imported global.  Find it in the imports list.
+  uint32_t ImportIndex = Index;
+  for (const wasm::WasmImport &Import : Imports) {
+    if (Import.Kind != wasm::WASM_EXTERNAL_GLOBAL)
+      continue;
+    if (ImportIndex-- == 0)
+      return &Import.Global;
+  }
+  return nullptr;
 }
 
 wasm::WasmTag &WasmObjectFile::getDefinedTag(uint32_t Index) {

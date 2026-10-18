@@ -241,6 +241,10 @@ private:
   wasm::WasmFunction &getDefinedFunction(uint32_t Index);
   const wasm::WasmFunction &getDefinedFunction(uint32_t Index) const;
   const wasm::WasmGlobal &getDefinedGlobal(uint32_t Index) const;
+  // Returns the type of the global at the given index in the global index
+  // space, covering both imported and defined globals.  Returns nullptr if
+  // the index is out of range.
+  const wasm::WasmGlobalType *getGlobalType(uint32_t Index) const;
   wasm::WasmTag &getDefinedTag(uint32_t Index);
 
   const WasmSection &getWasmSection(DataRefImpl Ref) const;
