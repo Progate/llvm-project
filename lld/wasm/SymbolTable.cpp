@@ -501,6 +501,28 @@ Symbol *SymbolTable::addSharedData(StringRef name, uint32_t flags,
   return s;
 }
 
+Symbol *SymbolTable::addSharedGlobal(StringRef name, uint32_t flags,
+                                     InputFile *file,
+                                     const WasmGlobalType *type) {
+  LLVM_DEBUG(dbgs() << "addSharedGlobal: " << name << "\n");
+  Symbol *s;
+  bool wasInserted;
+  std::tie(s, wasInserted) = insert(name, file);
+
+  if (wasInserted || s->isLazy()) {
+    replaceSymbol<SharedGlobal>(s, name, flags, file, type);
+    return s;
+  }
+
+  // Shared symbols should never replace locally-defined ones
+  if (s->isDefined())
+    return s;
+
+  checkGlobalType(s, file, type);
+  replaceSymbol<SharedGlobal>(s, name, flags, file, type);
+  return s;
+}
+
 Symbol *SymbolTable::addDefinedFunction(StringRef name, uint32_t flags,
                                         InputFile *file,
                                         InputFunction *function) {

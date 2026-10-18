@@ -72,6 +72,8 @@ std::string toString(wasm::Symbol::Kind kind) {
     return "SharedFunctionKind";
   case wasm::Symbol::SharedDataKind:
     return "SharedDataKind";
+  case wasm::Symbol::SharedGlobalKind:
+    return "SharedGlobal";
   case wasm::Symbol::SharedTagKind:
     return "SharedTagSymbol";
   }

@@ -62,6 +62,7 @@ public:
     LazyKind,
     SharedFunctionKind,
     SharedDataKind,
+    SharedGlobalKind,
     SharedTagKind,
   };
 
@@ -79,7 +80,7 @@ public:
   bool isLazy() const { return symbolKind == LazyKind; }
   bool isShared() const {
     return symbolKind == SharedFunctionKind || symbolKind == SharedDataKind ||
-           symbolKind == SharedTagKind;
+           symbolKind == SharedGlobalKind || symbolKind == SharedTagKind;
   }
 
   bool isLocal() const;
@@ -352,7 +353,8 @@ public:
 class GlobalSymbol : public Symbol {
 public:
   static bool classof(const Symbol *s) {
-    return s->kind() == DefinedGlobalKind || s->kind() == UndefinedGlobalKind;
+    return s->kind() == DefinedGlobalKind || s->kind() == UndefinedGlobalKind ||
+           s->kind() == SharedGlobalKind;
   }
 
   const WasmGlobalType *getGlobalType() const { return globalType; }
@@ -523,6 +525,17 @@ public:
   }
 };
 
+class SharedGlobal : public GlobalSymbol {
+public:
+  SharedGlobal(StringRef name, uint32_t flags, InputFile *f,
+               const WasmGlobalType *type)
+      : GlobalSymbol(name, SharedGlobalKind, flags, f, type) {}
+
+  static bool classof(const Symbol *s) {
+    return s->kind() == SharedGlobalKind;
+  }
+};
+
 // LazySymbol symbols represent symbols in object files between --start-lib and
 // --end-lib options. LLD also handles traditional archives as if all the files
 // in the archive are surrounded by --start-lib and --end-lib.
@@ -566,6 +579,7 @@ union SymbolUnion {
   alignas(SectionSymbol) char k[sizeof(SectionSymbol)];
   alignas(SharedFunctionSymbol) char l[sizeof(SharedFunctionSymbol)];
   alignas(SharedTagSymbol) char m[sizeof(SharedTagSymbol)];
+  alignas(SharedGlobal) char n[sizeof(SharedGlobal)];
 };
 
 // It is important to keep the size of SymbolUnion small for performance and
