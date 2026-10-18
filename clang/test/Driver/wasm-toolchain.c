@@ -326,3 +326,46 @@
 // RUN: %clang -### --target=wasm32-wasip3 -fuse-ld=lld %s --sysroot /foo 2>&1 \
 // RUN:   | FileCheck -check-prefix=LINK_WASIP3_COOP %s
 // LINK_WASIP3_COOP: wasm-ld{{.*}}" {{.*}} "--cooperative-threading"
+
+// `wasm32-unknown-linux-musl` links executables as PIE by default and uses the
+// Debian multiarch layout under /usr/lib/wasm32-linux-musl.
+
+// RUN: %clang -### --target=wasm32-unknown-linux-musl --sysroot=/foo %s 2>&1 \
+// RUN:   | FileCheck -check-prefix=LINK_LINUX_MUSL %s
+// LINK_LINUX_MUSL: "-cc1" {{.*}} "-o" "[[temp:[^"]*]]"
+// LINK_LINUX_MUSL-NOT: "-fvisibility=hidden"
+// LINK_LINUX_MUSL: wasm-ld{{.*}}" "-m" "wasm32" {{.*}} "-L/foo/usr/lib/wasm32-linux-musl" "{{[^"]*}}Scrt1.o" "{{[^"]*}}crti.o" "-pie" "--experimental-pic" {{.*}} "[[temp]]" "{{[^"]*}}crtn.o" "-lc" "{{.*[/\\]}}wasm32-unknown-linux-musl{{[/\\]}}libclang_rt.builtins.a" "-o" "a.out"
+
+// `-static` (and `-no-pie`) selects a non-PIC static executable on
+// `wasm32-unknown-linux-musl`.
+
+// RUN: %clang -### --target=wasm32-unknown-linux-musl --sysroot=/foo -static %s 2>&1 \
+// RUN:   | FileCheck -check-prefix=LINK_LINUX_MUSL_STATIC %s
+// LINK_LINUX_MUSL_STATIC: wasm-ld{{.*}}" "-m" "wasm32" {{.*}} "-L/foo/usr/lib/wasm32-linux-musl" "{{[^"]*}}crt1.o" "{{[^"]*}}crti.o" "-static" {{.*}} "{{[^"]*}}crtn.o" "-lc" {{.*}}
+// RUN: %clang -### --target=wasm32-unknown-linux-musl --sysroot=/foo -no-pie %s 2>&1 \
+// RUN:   | FileCheck -check-prefix=LINK_LINUX_MUSL_NOPIE %s
+// LINK_LINUX_MUSL_NOPIE: wasm-ld{{.*}}" {{.*}} "-static" {{.*}}
+
+// `-shared` on `wasm32-unknown-linux-musl` builds a shared library with no crt.
+
+// RUN: %clang -### --target=wasm32-unknown-linux-musl --sysroot=/foo -shared %s 2>&1 \
+// RUN:   | FileCheck -check-prefix=LINK_LINUX_MUSL_SHARED %s
+// LINK_LINUX_MUSL_SHARED: wasm-ld{{.*}}" "-m" "wasm32" {{.*}} "-L/foo/usr/lib/wasm32-linux-musl" "-shared" "--experimental-pic" "--unresolved-symbols=import-dynamic" {{.*}}
+// LINK_LINUX_MUSL_SHARED-NOT: crt1.o
+// LINK_LINUX_MUSL_SHARED-NOT: crti.o
+
+// `-pthread` on `wasm32-unknown-linux-musl` switches to the threads multiarch
+// dir, adds shared memory to the link, and picks the threads builtins.
+
+// RUN: %clang -### --target=wasm32-unknown-linux-musl --sysroot=/foo -pthread %s 2>&1 \
+// RUN:   | FileCheck -check-prefix=LINK_LINUX_MUSL_THREADS %s
+// LINK_LINUX_MUSL_THREADS: wasm-ld{{.*}}" "-m" "wasm32" {{.*}} "-L/foo/usr/lib/wasm32-linux-musl-threads"
+// LINK_LINUX_MUSL_THREADS-SAME: "-pie"
+// LINK_LINUX_MUSL_THREADS-SAME: "--shared-memory" "--import-memory" "--max-memory=4294967296" "-lpthread" "-lc" "{{.*[/\\]}}wasm32-unknown-linux-musl{{(/threads/)?}}libclang_rt.builtins.a"
+
+// `-rdynamic` on `wasm32-unknown-linux-musl` exports symbols to the dynamic
+// linker.
+
+// RUN: %clang -### --target=wasm32-unknown-linux-musl --sysroot=/foo -rdynamic %s 2>&1 \
+// RUN:   | FileCheck -check-prefix=LINK_LINUX_MUSL_RDYNAMIC %s
+// LINK_LINUX_MUSL_RDYNAMIC: wasm-ld{{.*}}" {{.*}} "--export-dynamic" {{.*}}

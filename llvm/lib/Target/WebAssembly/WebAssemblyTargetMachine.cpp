@@ -51,14 +51,16 @@ static cl::opt<bool> WasmDisableExplicitLocals(
              " instruction output for test purposes only."),
     cl::init(false));
 
-// WebAssembly has no floating-point status register. On WASI the C library
-// keeps the IEEE 754 exception flags in the wasm global __fe_status, and the
-// code raises them itself (WebAssemblyFPExceptionFlags.cpp). Other targets have
-// no such library, so the default is to do it only on WASI.
+// WebAssembly has no floating-point status register. On WASI and on
+// non-WALI wasm32 Linux the C library keeps the IEEE 754 exception flags in
+// the wasm global __fe_status, and the code raises them itself
+// (WebAssemblyFPExceptionFlags.cpp). Other targets have no such library, so
+// the default is to do it only on those targets.
 static cl::opt<cl::boolOrDefault> WasmFPExceptionFlags(
     "wasm-raise-fp-exceptions", cl::Hidden,
     cl::desc("WebAssembly: make floating-point operations raise the IEEE 754 "
-             "exception flags in the __fe_status global (default: on WASI)"));
+             "exception flags in the __fe_status global (default: on WASI and "
+             "non-WALI wasm32 Linux)"));
 
 // Exception handling & setjmp-longjmp handling related options.
 
@@ -551,9 +553,10 @@ void WebAssemblyPassConfig::addISelPrepare() {
   // Raise the floating-point exception flags. This comes last so that it sees
   // every operation that will run, including those of expanded atomics and
   // reductions.
+  const llvm::Triple &TT = TM->getTargetTriple();
   bool RaiseFPExceptionFlags =
       WasmFPExceptionFlags == cl::boolOrDefault::BOU_UNSET
-          ? TM->getTargetTriple().isOSWASI()
+          ? TT.isOSWASI() || (TT.isOSLinux() && !TT.isWALI())
           : WasmFPExceptionFlags == cl::boolOrDefault::BOU_TRUE;
   if (RaiseFPExceptionFlags)
     addPass(createWebAssemblyFPExceptionFlags());
