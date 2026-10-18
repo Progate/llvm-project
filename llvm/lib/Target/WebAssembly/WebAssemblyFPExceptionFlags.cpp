@@ -16,11 +16,12 @@
 /// makes the code record them itself. After each floating-point operation it
 /// classifies the result and sets the flags that the operation raises on a CPU
 /// in the mutable wasm global __fe_status, which the C library defines and
-/// reads. The bits are those of <fenv.h> (the x86 values), and the semantics
-/// are those of x86-64 with SSE: tininess is detected after rounding,
-/// comparisons are quiet (invalid only for signaling NaNs), and a conversion
-/// to an integer that does not fit raises invalid. Rounding is always to
-/// nearest, the only mode WebAssembly has.
+/// reads. The bits are those of <fenv.h>, and the bits and the semantics are
+/// those of riscv32 Linux, the ABI that the C library follows: tininess is
+/// detected after rounding, equality comparisons are quiet (invalid only for
+/// signaling NaNs) while ordered ones raise invalid for any NaN (feq against
+/// flt and fle), and a conversion to an integer that does not fit raises
+/// invalid. Rounding is always to nearest, the only mode WebAssembly has.
 ///
 /// The common case is cheap. A result that is normal (and above the smallest
 /// binade) rules out every exception but inexact, and inexact is usually set
@@ -74,14 +75,32 @@ static cl::opt<unsigned> MaxOutlinedParams(
 
 namespace {
 
-// The exception bits of <fenv.h> (arch/wasm32/bits/fenv.h in the C library).
+// The exception bits of <fenv.h> (arch/wasm32/bits/fenv.h in the C library),
+// which are those of riscv32 Linux (the fflags of the fcsr).
 enum : unsigned {
-  FEInvalid = 1,
-  FEDivByZero = 4,
-  FEOverflow = 8,
-  FEUnderflow = 16,
-  FEInexact = 32,
+  FEInexact = 1,
+  FEUnderflow = 2,
+  FEOverflow = 4,
+  FEDivByZero = 8,
+  FEInvalid = 16,
 };
+
+/// Whether riscv32 makes the comparison with flt or fle, which raise invalid
+/// for any NaN operand. Equality and (un)orderedness come from feq, which is
+/// quiet: it raises invalid only for signaling NaNs.
+static bool isSignalingCompare(FCmpInst::Predicate P) {
+  switch (P) {
+  case FCmpInst::FCMP_OEQ:
+  case FCmpInst::FCMP_UNE:
+  case FCmpInst::FCMP_ORD:
+  case FCmpInst::FCMP_UNO:
+  case FCmpInst::FCMP_FALSE:
+  case FCmpInst::FCMP_TRUE:
+    return false;
+  default:
+    return true;
+  }
+}
 
 /// The encoding of a scalar floating-point type.
 struct Format {
@@ -240,6 +259,8 @@ private:
                         const Format &Dst, Instruction *IP);
   void signalingOperands(ArrayRef<Value *> Operands, const Format &Fm,
                          Instruction *IP);
+  void nanOperands(ArrayRef<Value *> Operands, const Format &Fm,
+                   Instruction *IP);
   void roundToIntegral(Value *A, Value *R, const Format &Fm, Instruction *IP);
   void toInteger(Value *A, Type *ResultTy, bool Signed, const Format &Fm,
                  Instruction *IP);
@@ -793,6 +814,48 @@ void Instrumenter::signalingOperands(ArrayRef<Value *> Operands,
   raiseIf(Any, FEInvalid, IP);
 }
 
+void Instrumenter::nanOperands(ArrayRef<Value *> Operands, const Format &Fm,
+                               Instruction *IP) {
+  // Constants that are not NaNs need no check.
+  auto MayBeNaN = [](Constant *C) {
+    if (isa<UndefValue>(C))
+      return false;
+    if (auto *CFP = dyn_cast<ConstantFP>(C))
+      return CFP->getValueAPF().isNaN();
+    auto *VT = dyn_cast<FixedVectorType>(C->getType());
+    if (!VT)
+      return true;
+    for (unsigned L = 0, N = VT->getNumElements(); L < N; ++L) {
+      Constant *E = C->getAggregateElement(L);
+      if (!E || (!isa<UndefValue>(E) &&
+                 (!isa<ConstantFP>(E) ||
+                  cast<ConstantFP>(E)->getValueAPF().isNaN())))
+        return true;
+    }
+    return false;
+  };
+  SmallVector<Value *, 2> Checked;
+  for (Value *V : Operands)
+    if (!isa<Constant>(V) || MayBeNaN(cast<Constant>(V)))
+      Checked.push_back(V);
+  if (Checked.empty())
+    return;
+  IRBuilder<> B(IP);
+  Value *Any = nullptr;
+  if (Fm.isNative()) {
+    Any = Checked.size() == 2 ? B.CreateFCmpUNO(Checked[0], Checked[1])
+                              : B.CreateFCmpUNO(Checked[0], Checked[0]);
+  } else {
+    for (Value *V : Checked) {
+      Value *N = isNaN(B, V, Fm);
+      Any = Any ? B.CreateOr(Any, N) : N;
+    }
+  }
+  if (isa<FixedVectorType>(Any->getType()))
+    Any = B.CreateOrReduce(Any);
+  raiseIf(Any, FEInvalid, IP);
+}
+
 void Instrumenter::roundToIntegral(Value *A, Value *R, const Format &Fm,
                                    Instruction *IP) {
   // rint raises inexact when the result differs from the operand.
@@ -888,7 +951,7 @@ void Instrumenter::toInteger(Value *A, Type *ResultTy, bool Signed,
   Instruction *Then = ifThen(Any, IP, Unlikely);
   IRBuilder<> TB(Then);
   Type *FlagTy = Valid->getType()->getWithNewType(TB.getInt32Ty());
-  // Invalid alone when out of range (as x86's cvttsd2si), inexact when the
+  // Invalid alone when out of range (as riscv's fcvt), inexact when the
   // conversion dropped a fraction.
   Value *Flags = TB.CreateSelect(
       Valid,
@@ -954,8 +1017,11 @@ void Instrumenter::instrument(Instruction *I, Instruction *IP) {
     return;
   }
   if (auto *Cmp = dyn_cast<FCmpInst>(I)) {
-    signalingOperands({Cmp->getOperand(0), Cmp->getOperand(1)},
-                      *formatOf(Cmp->getOperand(0)->getType()), IP);
+    Format Fm = *formatOf(Cmp->getOperand(0)->getType());
+    if (isSignalingCompare(Cmp->getPredicate()))
+      nanOperands({Cmp->getOperand(0), Cmp->getOperand(1)}, Fm, IP);
+    else
+      signalingOperands({Cmp->getOperand(0), Cmp->getOperand(1)}, Fm, IP);
     return;
   }
   switch (I->getOpcode()) {
