@@ -2415,7 +2415,12 @@ void Clang::AddLanaiTargetArgs(const ArgList &Args,
 
 void Clang::AddWebAssemblyTargetArgs(const ArgList &Args,
                                      ArgStringList &CmdArgs) const {
-  // Default to "hidden" visibility.
+  // Default to "hidden" visibility. wasm32 Linux (non-WALI) follows the ELF
+  // convention where symbols have default visibility so that -shared exports
+  // the public interface, so it is left out there.
+  const llvm::Triple &T = getToolChain().getTriple();
+  if (T.isOSLinux() && !T.isWALI())
+    return;
   if (!Args.hasArg(options::OPT_fvisibility_EQ,
                    options::OPT_fvisibility_ms_compat))
     CmdArgs.push_back("-fvisibility=hidden");
