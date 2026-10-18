@@ -2,6 +2,7 @@
 ! __main_argc_argv, with exactly (argc, argv).
 
 ! RUN: %flang_fc1 -triple wasm32-unknown-wasip1 -emit-hlfir %s -o - | FileCheck %s --check-prefix=WASM
+! RUN: %flang_fc1 -triple wasm32-unknown-linux-musl -emit-hlfir %s -o - | FileCheck %s --check-prefix=WASM
 ! RUN: %flang_fc1 -triple wasm64-unknown-unknown -emit-hlfir %s -o - | FileCheck %s --check-prefix=WASM
 
 ! WASM-LABEL: func.func @__main_argc_argv(

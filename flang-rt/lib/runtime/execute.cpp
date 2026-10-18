@@ -25,7 +25,7 @@
 #include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
-#if defined(__wasi__) && __has_include(<spawn.h>)
+#if defined(__wasm__) && __has_include(<spawn.h>)
 #include <spawn.h>
 extern char **environ;
 #endif
@@ -271,9 +271,10 @@ void RTNAME(ExecuteCommandLine)(const Descriptor &command, bool wait,
       }
     }
     FreeMemory(wcmd);
-#elif defined(__wasi__)
-    // WASI has no fork(). Where the C library provides posix_spawn(), start
-    // the shell directly; otherwise report that asynchronous execution is not
+#elif defined(__wasm__)
+    // WebAssembly hosts have no address-space-copying fork(). Where the C
+    // library provides posix_spawn() (as BrowserOS's musl does), start the
+    // shell directly; otherwise report that asynchronous execution is not
     // supported.
 #if __has_include(<spawn.h>)
     char shell[]{"sh"};
@@ -291,11 +292,11 @@ void RTNAME(ExecuteCommandLine)(const Descriptor &command, bool wait,
     }
 #else
     if (!cmdstat) {
-      terminator.Crash("Asynchronous execution is not supported on WASI.");
+      terminator.Crash("Asynchronous execution is not supported on WebAssembly.");
     } else {
       StoreIntToDescriptor(cmdstat, ASYNC_NO_SUPPORT_ERR, terminator);
       CheckAndCopyCharsToDescriptor(
-          cmdmsg, "Asynchronous execution is not supported on WASI.");
+          cmdmsg, "Asynchronous execution is not supported on WebAssembly.");
     }
 #endif
 #else
