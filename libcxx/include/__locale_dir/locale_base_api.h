@@ -122,7 +122,7 @@
 #    include <__locale_dir/support/fuchsia.h>
 #  elif _LIBCPP_LIBC_LLVM_LIBC
 #    include <__locale_dir/support/llvm_libc.h>
-#  elif defined(__linux__)
+#  elif defined(__linux__) || _LIBCPP_HAS_MUSL_LIBC
 #    include <__locale_dir/support/linux.h>
 #  elif _LIBCPP_LIBC_NEWLIB
 #    include <__locale_dir/support/newlib.h>
