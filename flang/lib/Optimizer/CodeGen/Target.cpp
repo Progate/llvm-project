@@ -1914,8 +1914,7 @@ struct TargetSystemZ : public GenericTarget<TargetSystemZ> {
         fir::ReferenceType::get(mlir::TupleType::get(
             eleTy.getContext(), mlir::TypeRange{eleTy, eleTy})),
         AT{/*align=*/align, /*byval=*/false, /*sret=*/isResult,
-           /*append=*/false, /*intExt=*/AT::IntegerExtension::None,
-           /*indirect=*/!isResult});
+           /*append=*/false, /*intExt=*/AT::IntegerExtension::None});
     return marshal;
   }
 
@@ -1986,8 +1985,7 @@ struct TargetSystemZ : public GenericTarget<TargetSystemZ> {
     marshal.emplace_back(fir::ReferenceType::get(ty),
                          AT{/*align=*/align, /*byval=*/false, /*sret=*/false,
                             /*append=*/false,
-                            /*intExt=*/AT::IntegerExtension::None,
-                            /*indirect=*/true});
+                            /*intExt=*/AT::IntegerExtension::None});
     return marshal;
   }
 
