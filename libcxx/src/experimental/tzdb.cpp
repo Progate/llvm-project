@@ -55,7 +55,7 @@ _LIBCPP_CLANG_DIAGNOSTIC_IGNORED("-Wmissing-prototypes")
 // This function is weak so it can be overriden in the tests. The
 // declaration is in the test header test/support/test_tzdb.h
 [[gnu::weak]] string_view __libcpp_tzdb_directory() {
-#if defined(__linux__)
+#if defined(__linux__) || defined(__wasi__)
   return "/usr/share/zoneinfo/";
 #else
 #  error "unknown path to the IANA Time Zone Database"
