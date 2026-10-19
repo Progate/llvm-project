@@ -7151,7 +7151,11 @@ const ToolChain &Driver::getToolChain(const ArgList &Args,
         TC = std::make_unique<toolchains::VEToolChain>(*this, Target, Args);
       else if (Target.isOHOSFamily())
         TC = std::make_unique<toolchains::OHOS>(*this, Target, Args);
-      else if (Target.isWALI())
+      else if (Target.isWALI() ||
+               Target.getArch() == llvm::Triple::wasm32)
+        // wasm32 Linux (WALI and non-WALI such as wasm32-unknown-linux-musl)
+        // is handled by the WebAssembly toolchain rather than the generic
+        // Linux one.
         TC = std::make_unique<toolchains::WebAssembly>(*this, Target, Args);
       else if (Target.isLFI())
         TC = std::make_unique<toolchains::LFILinux>(*this, Target, Args);
