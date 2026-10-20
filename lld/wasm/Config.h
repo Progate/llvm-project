@@ -88,6 +88,9 @@ struct Config {
   // change as some point in the future if dynamic linking becomes more widely
   // used.
   bool isStatic = true;
+  // --as-needed / --no-as-needed. Positional: applies to the shared libraries
+  // that follow it on the command line.
+  bool asNeeded = false;
   bool thinLTOEmitImportsFiles;
   bool thinLTOEmitIndexFiles;
   bool thinLTOIndexOnly;

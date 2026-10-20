@@ -2462,11 +2462,16 @@ static void AddUnwindLibrary(const ToolChain &TC, const Driver &D,
     return;
 
   LibGccType LGT = getLibGccType(TC, D, Args);
-  // wasm-ld does not support --as-needed.
+  // Upstream wasm-ld does not support --as-needed; the fork's does, and
+  // wasm32 Linux (non-WALI) uses it like other Linux targets so that C
+  // programs, which never reference the unwinder, do not get a NEEDED entry
+  // for libunwind.so.
+  bool WasmWithoutAsNeeded =
+      TC.getTriple().isOSBinFormatWasm() &&
+      !(TC.getTriple().isOSLinux() && !TC.getTriple().isWALI());
   bool AsNeeded = LGT == LibGccType::UnspecifiedLibGcc &&
                   (UNW == ToolChain::UNW_CompilerRT || !D.CCCIsCXX()) &&
-                  !TC.getTriple().isAndroid() &&
-                  !TC.getTriple().isOSBinFormatWasm() &&
+                  !TC.getTriple().isAndroid() && !WasmWithoutAsNeeded &&
                   !TC.getTriple().isOSCygMing() && !TC.getTriple().isOSAIX();
   if (AsNeeded)
     addAsNeededOption(TC, Args, CmdArgs, true);

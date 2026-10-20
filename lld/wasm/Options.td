@@ -42,6 +42,10 @@ def Bdynamic: F<"Bdynamic">, HelpText<"Link against shared libraries">;
 
 def Bstatic: F<"Bstatic">, HelpText<"Do not link against shared libraries (default)">;
 
+defm as_needed: B<"as-needed",
+    "Only set NEEDED for shared libraries if used",
+    "Always set NEEDED for shared libraries (default)">;
+
 defm allow_multiple_definition: B<"allow-multiple-definition",
     "Allow multiple definitions",
     "Do not allow multiple definitions (default)">;

@@ -334,7 +334,7 @@
 // RUN:   | FileCheck -check-prefix=LINK_LINUX_MUSL %s
 // LINK_LINUX_MUSL: "-cc1"{{.*}} "-o" "[[temp:[^"]*]]"
 // LINK_LINUX_MUSL-NOT: "-fvisibility=hidden"
-// LINK_LINUX_MUSL: wasm-ld{{.*}}" "-m" "wasm32"{{.*}} "-L/foo/usr/lib/wasm32-linux-musl" "{{[^"]*}}Scrt1.o" "{{[^"]*}}crti.o" "-pie" "--experimental-pic" "--import-memory" "--import-table"{{.*}} "[[temp]]" "{{[^"]*}}crtn.o" "-lc" "{{.*[/\\]}}wasm32-unknown-linux-musl{{[/\\]}}libclang_rt.builtins.a" "-lunwind" "-o" "a.out"
+// LINK_LINUX_MUSL: wasm-ld{{.*}}" "-m" "wasm32"{{.*}} "-L/foo/usr/lib/wasm32-linux-musl" "{{[^"]*}}Scrt1.o" "{{[^"]*}}crti.o" "-pie" "--experimental-pic" "--import-memory" "--import-table"{{.*}} "[[temp]]" "{{[^"]*}}crtn.o" "-lc" "{{.*[/\\]}}wasm32-unknown-linux-musl{{[/\\]}}libclang_rt.builtins.a" "--as-needed" "-lunwind" "--no-as-needed" "-o" "a.out"
 
 // `-static` (and `-no-pie`) selects a non-PIC static executable on
 // `wasm32-unknown-linux-musl`.
@@ -361,7 +361,7 @@
 // RUN:   | FileCheck -check-prefix=LINK_LINUX_MUSL_THREADS %s
 // LINK_LINUX_MUSL_THREADS: wasm-ld{{.*}}" "-m" "wasm32"{{.*}} "-L/foo/usr/lib/wasm32-linux-musl-threads"
 // LINK_LINUX_MUSL_THREADS-SAME: "-pie"
-// LINK_LINUX_MUSL_THREADS-SAME: "--shared-memory" "--import-memory" "--max-memory=4294967296" "-lpthread" "-lc" "{{.*[/\\]}}wasm32-unknown-linux-musl{{(/threads/)?}}libclang_rt.builtins.a" "-lunwind"
+// LINK_LINUX_MUSL_THREADS-SAME: "--shared-memory" "--import-memory" "--max-memory=4294967296" "-lpthread" "-lc" "{{.*[/\\]}}wasm32-unknown-linux-musl{{(/threads/)?}}libclang_rt.builtins.a" "--as-needed" "-lunwind" "--no-as-needed"
 
 // `-rdynamic` on `wasm32-unknown-linux-musl` exports symbols to the dynamic
 // linker.
@@ -378,7 +378,7 @@
 // RUN:   | FileCheck -check-prefix=LINUX_MUSL_EH %s
 // LINUX_MUSL_EH: "-cc1"{{.*}} "-exception-model=wasm"
 // LINUX_MUSL_EH-SAME: "-mllvm" "-wasm-use-legacy-eh=false"
-// LINUX_MUSL_EH: wasm-ld{{.*}} "-lunwind"
+// LINUX_MUSL_EH: wasm-ld{{.*}} "--as-needed" "-lunwind" "--no-as-needed"
 
 // The standardized (exnref) encoding is the default for both EH and SjLj, and
 // an explicit -wasm-use-legacy-eh still wins.

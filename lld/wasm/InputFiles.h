@@ -160,6 +160,11 @@ public:
   // one: the library's own soname, or its file name if it declares none.
   StringRef soName;
 
+  // Whether this library gets a NEEDED entry. Libraries that appear after
+  // --as-needed only do so once a regular object references a symbol that
+  // resolves to them (as in ELF).
+  bool isNeeded;
+
   static bool classof(const InputFile *f) { return f->kind() == SharedKind; }
 };
 
