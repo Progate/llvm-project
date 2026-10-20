@@ -115,6 +115,18 @@ void scanRelocations(InputChunk *chunk) {
       if (!isa<GlobalSymbol>(sym))
         addGOTEntry(sym);
       break;
+    case R_WASM_MEMORY_ADDR_LOCREL_I32:
+    case R_WASM_MEMORY_ADDR_LOCREL_I64:
+      // A self-relative offset to a function resolves to its function-table
+      // index, so the function needs a table entry (or a GOT entry when its
+      // address must be imported).
+      if (isa<FunctionSymbol>(sym)) {
+        if (requiresGOTAccess(sym))
+          addGOTEntry(sym);
+        else if (auto *f = dyn_cast<DefinedFunction>(sym))
+          out.elemSec->addEntry(f);
+      }
+      break;
     case R_WASM_MEMORY_ADDR_TLS_SLEB:
     case R_WASM_MEMORY_ADDR_TLS_SLEB64:
       // These relocations are resolved relative to this module's own
