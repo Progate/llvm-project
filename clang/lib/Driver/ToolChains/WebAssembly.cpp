@@ -628,6 +628,21 @@ void WebAssembly::addClangTargetOptions(const ArgList &DriverArgs,
       }
     }
   }
+
+  // wasm32 Linux (non-WALI) uses the standardized Wasm EH (exnref), not the
+  // legacy try/catch/rethrow encoding the backend still emits by default: the
+  // platform libc++/libc++abi/libunwind, libc.so's setjmp/longjmp and every
+  // package built for the target use exnref, and one ABI has one encoding. An
+  // explicit -mllvm -wasm-use-legacy-eh=... still wins.
+  if (IsNonWaliLinux(getTriple()) && HasEnabledFeaturesForWasmEHSjLj &&
+      llvm::none_of(DriverArgs.filtered(options::OPT_mllvm),
+                    [](const Arg *A) {
+                      return StringRef(A->getValue(0))
+                          .starts_with("-wasm-use-legacy-eh");
+                    })) {
+    CC1Args.push_back("-mllvm");
+    CC1Args.push_back("-wasm-use-legacy-eh=false");
+  }
 }
 
 ToolChain::RuntimeLibType WebAssembly::GetDefaultRuntimeLibType() const {

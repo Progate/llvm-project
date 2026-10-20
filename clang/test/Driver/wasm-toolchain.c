@@ -377,7 +377,23 @@
 // RUN: %clang -### --target=wasm32-unknown-linux-musl --sysroot=/foo %s 2>&1 \
 // RUN:   | FileCheck -check-prefix=LINUX_MUSL_EH %s
 // LINUX_MUSL_EH: "-cc1"{{.*}} "-exception-model=wasm"
+// LINUX_MUSL_EH-SAME: "-mllvm" "-wasm-use-legacy-eh=false"
 // LINUX_MUSL_EH: wasm-ld{{.*}} "-lunwind"
+
+// The standardized (exnref) encoding is the default for both EH and SjLj, and
+// an explicit -wasm-use-legacy-eh still wins.
+
+// RUN: %clang -### --target=wasm32-unknown-linux-musl --sysroot=/foo -fwasm-exceptions %s 2>&1 \
+// RUN:   | FileCheck -check-prefix=LINUX_MUSL_EXNREF %s
+// RUN: %clang -### --target=wasm32-unknown-linux-musl --sysroot=/foo -mllvm -wasm-enable-sjlj %s 2>&1 \
+// RUN:   | FileCheck -check-prefix=LINUX_MUSL_EXNREF %s
+// LINUX_MUSL_EXNREF: "-cc1"{{.*}} "-mllvm" "-wasm-use-legacy-eh=false"
+// LINUX_MUSL_EXNREF-NOT: "-wasm-use-legacy-eh=false"
+
+// RUN: %clang -### --target=wasm32-unknown-linux-musl --sysroot=/foo -mllvm -wasm-use-legacy-eh=true %s 2>&1 \
+// RUN:   | FileCheck -check-prefix=LINUX_MUSL_LEGACY_EH %s
+// LINUX_MUSL_LEGACY_EH: "-cc1"
+// LINUX_MUSL_LEGACY_EH-NOT: "-wasm-use-legacy-eh=false"
 
 // `-mno-exception-handling` still opts out of Wasm EH.
 
