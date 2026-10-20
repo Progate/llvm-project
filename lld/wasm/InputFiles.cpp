@@ -184,16 +184,29 @@ uint64_t ObjFile::calcNewValue(const WasmRelocation &reloc, uint64_t tombstone,
   case R_WASM_MEMORY_ADDR_TLS_SLEB64:
   case R_WASM_MEMORY_ADDR_LOCREL_I32:
   case R_WASM_MEMORY_ADDR_LOCREL_I64: {
-    if (isa<UndefinedData>(sym) || sym->isShared() || sym->isUndefWeak())
+    if (isa<UndefinedData>(sym) || isa<UndefinedFunction>(sym) ||
+        sym->isShared() || sym->isUndefWeak())
       return 0;
-    auto D = cast<DefinedData>(sym);
-    uint64_t value = D->getVA() + reloc.Addend;
+    // LOCREL is a self-relative offset (target minus the location's VA). The
+    // "address" of a function is its function-table index, not a data VA.
+    uint64_t value;
+    if (auto *f = dyn_cast<DefinedFunction>(sym))
+      value = f->getTableIndex() + reloc.Addend;
+    else
+      value = cast<DefinedData>(sym)->getVA() + reloc.Addend;
     if (reloc.Type == R_WASM_MEMORY_ADDR_LOCREL_I32 ||
         reloc.Type == R_WASM_MEMORY_ADDR_LOCREL_I64) {
-      const auto *segment = cast<InputSegment>(chunk);
-      uint64_t p = segment->outputSeg->startVA + segment->outputSegmentOffset +
-                   reloc.Offset - segment->getInputSectionOffset();
-      value -= p;
+      // `p` is the VA of the relocation's location. Only data segments that
+      // reached a real output segment have a VA; in a code chunk or a
+      // segment carried by a custom section (debug info) the location has
+      // no address, so the offset is just the raw target value.
+      const auto *segment = dyn_cast<InputSegment>(chunk);
+      if (segment && segment->outputSeg) {
+        uint64_t p = segment->outputSeg->startVA +
+                     segment->outputSegmentOffset + reloc.Offset -
+                     segment->getInputSectionOffset();
+        value -= p;
+      }
     }
     return value;
   }
