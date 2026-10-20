@@ -411,6 +411,12 @@ void LinkerDriver::createFiles(opt::InputArgList &args) {
       if (!ctx.arg.relocatable)
         ctx.arg.isStatic = false;
       break;
+    case OPT_as_needed:
+      ctx.arg.asNeeded = true;
+      break;
+    case OPT_no_as_needed:
+      ctx.arg.asNeeded = false;
+      break;
     case OPT_whole_archive:
       inWholeArchive = true;
       break;
@@ -1528,6 +1534,17 @@ void LinkerDriver::linkerMain(ArrayRef<const char *> argsArr) {
 
   // Do size optimizations: garbage collection
   markLive();
+
+  // --as-needed: as in ELF, a shared library linked as needed gets a NEEDED
+  // entry only if a regular object references one of the symbols it ended up
+  // defining. Dropping it here keeps it out of the dylink.0 NEEDED list; none
+  // of its symbols are imported, since nothing refers to them.
+  for (SharedFile *f : ctx.sharedFiles)
+    if (!f->isNeeded)
+      for (Symbol *sym : f->getSymbols())
+        if (sym->getFile() == f && sym->isUsedInRegularObj)
+          f->isNeeded = true;
+  llvm::erase_if(ctx.sharedFiles, [](SharedFile *f) { return !f->isNeeded; });
 
   // Provide the indirect function table if needed.
   ctx.sym.indirectFunctionTable =

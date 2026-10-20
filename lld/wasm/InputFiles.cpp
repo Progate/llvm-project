@@ -432,7 +432,8 @@ ObjFile::ObjFile(MemoryBufferRef m, StringRef archiveName, bool lazy)
     markLive();
 }
 
-SharedFile::SharedFile(MemoryBufferRef m) : WasmFileBase(SharedKind, m) {
+SharedFile::SharedFile(MemoryBufferRef m)
+    : WasmFileBase(SharedKind, m), isNeeded(!ctx.arg.asNeeded) {
   soName = wasmObj->dylinkInfo().SoName;
   if (soName.empty())
     soName = llvm::sys::path::filename(getName());
