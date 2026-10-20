@@ -1012,7 +1012,11 @@ static inline void get_landing_pad(__cxa_catch_temp_type &dest,
 }
 
 #ifdef __WASM_EXCEPTIONS__
-_Unwind_Reason_Code __gxx_personality_wasm0
+// Like __gxx_personality_v0 below, this is the entry point that the unwinder
+// calls (libunwind's _Unwind_CallPersonality), so it must stay visible when
+// libc++abi is built as a shared library: libunwind and libc++abi are separate
+// shared objects on targets that link them dynamically (wasm32 Linux).
+_LIBCXXABI_FUNC_VIS _Unwind_Reason_Code __gxx_personality_wasm0
 #elif defined(__SEH__) && !defined(__USING_SJLJ_EXCEPTIONS__)
 static _Unwind_Reason_Code __gxx_personality_imp
 #else
