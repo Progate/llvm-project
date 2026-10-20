@@ -972,6 +972,15 @@ static void createSyntheticSymbols() {
     ctx.sym.tableBase = createUndefinedGlobal("__table_base", globalType);
     ctx.sym.memoryBase->markLive();
     ctx.sym.tableBase->markLive();
+    // The IEEE 754 exception flags that the fork's WebAssembly backend raises
+    // after floating-point operations live in the mutable i32 global
+    // `__fe_status`. In dynamically linked programs no module defines it, not
+    // even libc.so: the dynamic loader creates one per thread and hands the
+    // same global to every module, like __stack_pointer. A PIE executable
+    // therefore imports it from the environment instead of reporting it as
+    // undefined (shared libraries already do so via import-dynamic). Static
+    // links keep resolving it to libc.a's definition.
+    ctx.arg.allowUndefinedSymbols.insert("__fe_status");
   } else {
     // For non-PIC code
     ctx.sym.stackPointer =
