@@ -987,6 +987,14 @@ static void createSyntheticSymbols() {
     // undefined (shared libraries already do so via import-dynamic). Static
     // links keep resolving it to libc.a's definition.
     ctx.arg.allowUndefinedSymbols.insert("__fe_status");
+    // The same goes for `__c_longjmp`, the exception tag that setjmp/longjmp
+    // lowered onto Wasm exception handling throws and catches
+    // (-wasm-enable-sjlj). Every module that uses setjmp/longjmp refers to it,
+    // and a longjmp from one module has to be caught by the setjmp of another,
+    // so the tag must be one shared object: no module defines it, not even
+    // libc.so, and the dynamic loader hands the same tag to every module. A
+    // static link resolves it to libc.a's definition.
+    ctx.arg.allowUndefinedSymbols.insert("__c_longjmp");
   } else {
     // For non-PIC code
     ctx.sym.stackPointer =
