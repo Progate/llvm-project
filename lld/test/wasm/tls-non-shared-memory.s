@@ -130,12 +130,16 @@ tls1:
 #      SHARED:     - Name:            no_tls
 # SHARED-NEXT:       Kind:            GLOBAL
 
-# In PIE mode we don't export data address by default.
+# In PIE mode we don't export data address by default. The loader runs the
+# constructors through the exported __wasm_call_ctors.
 #      PIE:   - Type:            EXPORT
 # PIE-NEXT:     Exports:
 # PIE-NEXT:       - Name:            memory
 # PIE-NEXT:         Kind:            MEMORY
 # PIE-NEXT:         Index:           0
+# PIE-NEXT:       - Name:            __wasm_call_ctors
+# PIE-NEXT:         Kind:            FUNCTION
+# PIE-NEXT:         Index:           {{[0-9]+}}
 # PIE-NEXT:   - Type:
 
 # .tdata and .data are combined into single segment in PIC mode.
