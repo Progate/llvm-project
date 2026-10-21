@@ -440,6 +440,61 @@ bool InputChunk::generateRelocationCode(raw_ostream &os) const {
   // here to apply them.
   for (const WasmRelocation &rel : relocations) {
     Symbol *sym = file->getSymbol(rel);
+    if (rel.Type == R_WASM_MEMORY_ADDR_LOCREL_I32 ||
+        rel.Type == R_WASM_MEMORY_ADDR_LOCREL_I64) {
+      // LOCREL is a self-relative offset (target minus the location's VA), so
+      // the value relocate() wrote at link time is already correct — both
+      // sides move together when __memory_base shifts. The exception is a
+      // LOCREL against a function: a function's address is a function-table
+      // index, which shifts by __table_base while the location shifts by
+      // __memory_base, so the stored offset needs (table_base - memory_base)
+      // applied at load time.
+      if (!ctx.isPic || !isa<FunctionSymbol>(sym))
+        continue;
+      uint64_t offset = getVA(rel.Offset) - getInputSectionOffset();
+      // The address to store to: __memory_base + offset.
+      writePtrConst(os, offset, is64, "offset");
+      writeU8(os, WASM_OPCODE_GLOBAL_GET, "GLOBAL_GET");
+      writeUleb128(os, ctx.sym.memoryBase->getGlobalIndex(), "memory_base");
+      writeU8(os, opcode_ptr_add, "ADD");
+      // The value to store: (runtime function address) - (runtime location).
+      bool is64 = relocIs64(rel.Type);
+      unsigned opcode_reloc_add =
+          is64 ? WASM_OPCODE_I64_ADD : WASM_OPCODE_I32_ADD;
+      unsigned opcode_reloc_sub =
+          is64 ? WASM_OPCODE_I64_SUB : WASM_OPCODE_I32_SUB;
+      unsigned opcode_reloc_store =
+          is64 ? WASM_OPCODE_I64_STORE : WASM_OPCODE_I32_STORE;
+      if (sym->hasGOTIndex()) {
+        // GOT.func holds the runtime function address.
+        writeU8(os, WASM_OPCODE_GLOBAL_GET, "GLOBAL_GET");
+        writeUleb128(os, sym->getGOTIndex(), "global index");
+        if (rel.Addend) {
+          writePtrConst(os, rel.Addend, is64, "addend");
+          writeU8(os, opcode_reloc_add, "ADD");
+        }
+        writeU8(os, WASM_OPCODE_GLOBAL_GET, "GLOBAL_GET");
+        writeUleb128(os, ctx.sym.memoryBase->getGlobalIndex(), "memory_base");
+        writeU8(os, opcode_reloc_sub, "SUB");
+        writePtrConst(os, -static_cast<int64_t>(offset), is64, "offset");
+        writeU8(os, opcode_reloc_add, "ADD");
+      } else {
+        // table_base + (funcIndex + addend - offset) - memory_base
+        writeU8(os, WASM_OPCODE_GLOBAL_GET, "GLOBAL_GET");
+        writeUleb128(os, ctx.sym.tableBase->getGlobalIndex(), "table_base");
+        writeU8(os, WASM_OPCODE_GLOBAL_GET, "GLOBAL_GET");
+        writeUleb128(os, ctx.sym.memoryBase->getGlobalIndex(), "memory_base");
+        writeU8(os, opcode_reloc_sub, "SUB");
+        writePtrConst(os, file->calcNewValue(rel, tombstone, this), is64,
+                      "offset");
+        writeU8(os, opcode_reloc_add, "ADD");
+      }
+      writeU8(os, opcode_reloc_store, "I32_STORE");
+      writeUleb128(os, 2, "align");
+      writeUleb128(os, 0, "offset");
+      generated = true;
+      continue;
+    }
     // Runtime relocations are needed when we don't know the address of
     // a symbol statically.
     bool requiresRuntimeReloc = ctx.isPic || sym->hasGOTIndex();

@@ -1636,6 +1636,12 @@ void Writer::createCallCtorsFunction() {
   if (!ctx.sym.callCtors->isLive() && initFunctions.empty())
     return;
 
+  // In PIC mode the dynamic linker runs the ctors by calling the exported
+  // `__wasm_call_ctors` after `__wasm_apply_data_relocs` (browser-dyld does
+  // this for every loaded module).  Export it the same way.
+  if (ctx.isPic)
+    ctx.sym.callCtors->forceExport = true;
+
   // First write the body's contents to a string.
   std::string bodyContent;
   {
