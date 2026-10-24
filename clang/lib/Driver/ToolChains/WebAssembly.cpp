@@ -167,6 +167,14 @@ void wasm::Linker::ConstructJob(Compilation &C, const JobAction &JA,
       CmdArgs.push_back("--experimental-pic");
       // Like ELF -shared, unresolved names are resolved at run time.
       CmdArgs.push_back("--unresolved-symbols=import-dynamic");
+      // Bind calls to functions defined in the library to those definitions,
+      // as distributions do by default on ELF (e.g. Ubuntu's
+      // -Wl,-Bsymbolic-functions). Without it every call to an exported
+      // function from inside the library goes through the dynamic linker's
+      // import, which costs an indirect call on Wasm. Data stays
+      // preemptible, so vague-linkage objects keep a single address across
+      // modules. A later -Wl,-Bsymbolic* overrides this.
+      CmdArgs.push_back("-Bsymbolic-functions");
     } else if (!IsStatic) {
       CmdArgs.push_back("-pie");
       CmdArgs.push_back("--experimental-pic");
@@ -200,6 +208,11 @@ void wasm::Linker::ConstructJob(Compilation &C, const JobAction &JA,
       CmdArgs.push_back("--shared-memory");
       CmdArgs.push_back("--import-memory");
       CmdArgs.push_back("--max-memory=4294967296");
+      // A threaded program is instantiated once per thread on the same
+      // memory; export it too so the runtime can reach the memory a program
+      // was started with, as it does for programs that define their own.
+      if (!IsShared)
+        CmdArgs.push_back("--export-memory");
     }
   } else {
     bool IsCommand = true;
