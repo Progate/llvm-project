@@ -2,10 +2,15 @@
 # RUN: wasm-ld -shared -o %t.wasm %t.o
 # RUN: obj2yaml %t.wasm | FileCheck %s
 # RUN: llvm-objdump -d %t.wasm | FileCheck %s -check-prefix=ASM
+# RUN: wasm-ld -shared -Bsymbolic -o %t.symbolic.wasm %t.o
+# RUN: obj2yaml %t.symbolic.wasm | FileCheck %s -check-prefix=SYMBOLIC
+# RUN: llvm-objdump -d %t.symbolic.wasm | FileCheck %s -check-prefix=SYMBOLIC-ASM
 
 # Verify the weakly defined fuctions (weak_func) are both imported and exported,
 # and that internal usage (direct call) always uses the imported version.
 # Hidden functions, even if weak, should not be imported or exported.
+# With -Bsymbolic the weak definition binds locally, as it does for ELF: it is
+# still exported but not imported, and internal calls use the definition.
 
 .globl weak_func
 .weak weak_func
@@ -83,3 +88,22 @@ call_weak:
 # CHECK-NEXT:         Name:            hidden_weak_func
 # CHECK-NEXT:       - Index:           4
 # CHECK-NEXT:         Name:            call_weak
+
+# SYMBOLIC:       - Type:            IMPORT
+# SYMBOLIC-NOT:       Field:           weak_func
+# SYMBOLIC:       - Type:            FUNCTION
+# SYMBOLIC:       - Type:            EXPORT
+# SYMBOLIC-NEXT:    Exports:
+# SYMBOLIC-NEXT:      - Name:            __wasm_call_ctors
+# SYMBOLIC-NEXT:        Kind:            FUNCTION
+# SYMBOLIC-NEXT:        Index:           0
+# SYMBOLIC-NEXT:      - Name:            weak_func
+# SYMBOLIC-NEXT:        Kind:            FUNCTION
+# SYMBOLIC-NEXT:        Index:           1
+# SYMBOLIC-NEXT:      - Name:            call_weak
+# SYMBOLIC-NEXT:        Kind:            FUNCTION
+# SYMBOLIC-NEXT:        Index:           3
+
+# SYMBOLIC-ASM:      <call_weak>:
+# SYMBOLIC-ASM:      10 81 80 80 80 00      call  1
+# SYMBOLIC-ASM:      10 82 80 80 80 00      call  2

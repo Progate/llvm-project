@@ -761,9 +761,10 @@ static bool shouldImport(Symbol *sym) {
 
   // When a symbol is weakly defined in a shared library we need to allow
   // it to be overridden by another module so need to both import
-  // and export the symbol.
-  if (ctx.arg.shared && sym->isWeak() && !sym->isUndefined() &&
-      !sym->isHidden())
+  // and export the symbol.  With -Bsymbolic references bind to the local
+  // definition instead, as they do for ELF, so no import is needed.
+  if (ctx.arg.shared && !ctx.arg.bsymbolic && sym->isWeak() &&
+      !sym->isUndefined() && !sym->isHidden())
     return true;
   if (sym->isShared())
     return true;
