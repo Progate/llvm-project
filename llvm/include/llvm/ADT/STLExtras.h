@@ -1601,7 +1601,16 @@ inline void array_pod_sort(IteratorTy Start, IteratorTy End) {
 #ifdef EXPENSIVE_CHECKS
   detail::presortShuffle<IteratorTy>(Start, End);
 #endif
+#ifdef __wasm__
+  // On WebAssembly, qsort lives in libc.so when LLVM is built as a shared
+  // library, and every comparison becomes a call_indirect into another
+  // instance that the engine cannot inline. musl's qsort (smoothsort) also
+  // makes many more comparisons than std::sort. Together they took a quarter
+  // of clang's time on large inputs.
+  std::sort(Start, End);
+#else
   qsort(&*Start, NElts, sizeof(*Start), get_array_pod_sort_comparator(*Start));
+#endif
 }
 
 template <class IteratorTy>
@@ -1617,8 +1626,15 @@ inline void array_pod_sort(
 #ifdef EXPENSIVE_CHECKS
   detail::presortShuffle<IteratorTy>(Start, End);
 #endif
+#ifdef __wasm__
+  // See above: keep the comparisons inside this module.
+  std::sort(Start, End, [Compare](const auto &LHS, const auto &RHS) {
+    return Compare(&LHS, &RHS) < 0;
+  });
+#else
   qsort(&*Start, NElts, sizeof(*Start),
         reinterpret_cast<int (*)(const void *, const void *)>(Compare));
+#endif
 }
 
 namespace detail {
