@@ -429,6 +429,29 @@ std::optional<std::string> WebAssembly::getRuntimePath() const {
   return ToolChain::getRuntimePath();
 }
 
+std::string WebAssembly::getCompilerRT(const ArgList &Args,
+                                       StringRef Component, FileType Type,
+                                       bool IsFortran) const {
+  // On wasm32 Linux (non-WALI) the Fortran runtime is a system library, as
+  // libgfortran is on Debian: libflang_rt.runtime.so and .a both live in
+  // /usr/lib/<multiarch>, so that -lflang_rt.runtime picks the shared library
+  // by default and -static picks the archive. They are not in the resource dir,
+  // whose -L comes first and would make every link static. Look for the
+  // archive that -static-libflangrt names in the multiarch dir.
+  if (IsFortran && IsNonWaliLinux(getTriple())) {
+    std::string Basename = buildCompilerRTBasename(Args, Component, Type,
+                                                   /*AddArch=*/false,
+                                                   /*IsFortran=*/true);
+    for (const auto &Dir : getFilePaths()) {
+      SmallString<128> P(Dir);
+      llvm::sys::path::append(P, Basename);
+      if (getVFS().exists(P))
+        return std::string(P);
+    }
+  }
+  return ToolChain::getCompilerRT(Args, Component, Type, IsFortran);
+}
+
 bool WebAssembly::IsMathErrnoDefault() const { return false; }
 
 bool WebAssembly::IsObjCNonFragileABIDefault() const { return true; }

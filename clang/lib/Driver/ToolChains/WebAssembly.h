@@ -84,6 +84,11 @@ private:
 
   std::optional<std::string> getRuntimePath() const override;
 
+  std::string getCompilerRT(const llvm::opt::ArgList &Args,
+                            StringRef Component,
+                            FileType Type = ToolChain::FT_Static,
+                            bool IsFortran = false) const override;
+
   // True when -pthread selects the threads runtime dir on wasm32 Linux.
   bool UseThreadsRuntimeDir = false;
 
