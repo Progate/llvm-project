@@ -183,6 +183,26 @@ bool Symbol::isWeak() const {
   return (flags & WASM_SYMBOL_BINDING_MASK) == WASM_SYMBOL_BINDING_WEAK;
 }
 
+bool Symbol::isBoundLocally() const {
+  if (!isDefined())
+    return false;
+  if (!ctx.arg.shared)
+    return true;
+  switch (ctx.arg.bsymbolic) {
+  case BsymbolicKind::None:
+    return false;
+  case BsymbolicKind::NonWeakFunctions:
+    return isa<FunctionSymbol>(this) && !isWeak();
+  case BsymbolicKind::Functions:
+    return isa<FunctionSymbol>(this);
+  case BsymbolicKind::NonWeak:
+    return !isWeak();
+  case BsymbolicKind::All:
+    return true;
+  }
+  llvm_unreachable("unknown BsymbolicKind");
+}
+
 bool Symbol::isLocal() const {
   return (flags & WASM_SYMBOL_BINDING_MASK) == WASM_SYMBOL_BINDING_LOCAL;
 }

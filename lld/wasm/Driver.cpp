@@ -535,7 +535,18 @@ static void readConfigs(opt::InputArgList &args) {
       hasZOption(args, "muldefs") ||
       args.hasFlag(OPT_allow_multiple_definition,
                    OPT_no_allow_multiple_definition, false);
-  ctx.arg.bsymbolic = args.hasArg(OPT_Bsymbolic);
+  if (opt::Arg *arg = args.getLastArg(
+          OPT_Bsymbolic_non_weak_functions, OPT_Bsymbolic_functions,
+          OPT_Bsymbolic_non_weak, OPT_Bsymbolic)) {
+    if (arg->getOption().matches(OPT_Bsymbolic_non_weak_functions))
+      ctx.arg.bsymbolic = BsymbolicKind::NonWeakFunctions;
+    else if (arg->getOption().matches(OPT_Bsymbolic_functions))
+      ctx.arg.bsymbolic = BsymbolicKind::Functions;
+    else if (arg->getOption().matches(OPT_Bsymbolic_non_weak))
+      ctx.arg.bsymbolic = BsymbolicKind::NonWeak;
+    else
+      ctx.arg.bsymbolic = BsymbolicKind::All;
+  }
   ctx.arg.checkFeatures =
       args.hasFlag(OPT_check_features, OPT_no_check_features, true);
   ctx.arg.compressRelocations = args.hasArg(OPT_compress_relocations);
@@ -815,7 +826,7 @@ static void checkOptions(opt::InputArgList &args) {
       error("-r and --global-base may not by used together");
   }
 
-  if (ctx.arg.bsymbolic && !ctx.arg.shared) {
+  if (ctx.arg.bsymbolic != BsymbolicKind::None && !ctx.arg.shared) {
     warn("-Bsymbolic is only meaningful when combined with -shared");
   }
 

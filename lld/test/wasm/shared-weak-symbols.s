@@ -2,15 +2,21 @@
 # RUN: wasm-ld -shared -o %t.wasm %t.o
 # RUN: obj2yaml %t.wasm | FileCheck %s
 # RUN: llvm-objdump -d %t.wasm | FileCheck %s -check-prefix=ASM
+# RUN: wasm-ld -shared -Bsymbolic-non-weak -o %t.non-weak.wasm %t.o
+# RUN: obj2yaml %t.non-weak.wasm | FileCheck %s
+# RUN: llvm-objdump -d %t.non-weak.wasm | FileCheck %s -check-prefix=ASM
 # RUN: wasm-ld -shared -Bsymbolic -o %t.symbolic.wasm %t.o
+# RUN: wasm-ld -shared -Bsymbolic-functions -o %t.functions.wasm %t.o
+# RUN: obj2yaml %t.functions.wasm | FileCheck %s -check-prefix=SYMBOLIC
 # RUN: obj2yaml %t.symbolic.wasm | FileCheck %s -check-prefix=SYMBOLIC
 # RUN: llvm-objdump -d %t.symbolic.wasm | FileCheck %s -check-prefix=SYMBOLIC-ASM
 
 # Verify the weakly defined fuctions (weak_func) are both imported and exported,
 # and that internal usage (direct call) always uses the imported version.
 # Hidden functions, even if weak, should not be imported or exported.
-# With -Bsymbolic the weak definition binds locally, as it does for ELF: it is
-# still exported but not imported, and internal calls use the definition.
+# With -Bsymbolic (or -Bsymbolic-functions) the weak definition binds locally,
+# as it does for ELF: it is still exported but not imported, and internal calls
+# use the definition. -Bsymbolic-non-weak leaves weak definitions preemptible.
 
 .globl weak_func
 .weak weak_func
