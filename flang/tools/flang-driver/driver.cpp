@@ -26,6 +26,7 @@
 #include "clang/Options/Options.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/IntrusiveRefCntPtr.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Option/ArgList.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InitLLVM.h"
@@ -142,6 +143,16 @@ int main(int argc, const char **argv) {
     clang::driver::applyOverrideOptions(args, overrideStr, savedStrings,
                                         "FCC_OVERRIDE_OPTIONS", &llvm::errs());
 
+  // This binary only drives Fortran compilations, so it runs in flang mode
+  // even when installed under a name without the "flang" suffix, e.g. as
+  // gfortran or f95 on a system where flang is the Fortran compiler. Without
+  // this, such names fall back to the GCC mode and the driver emits -cc1 jobs.
+  if (!targetandMode.DriverMode &&
+      llvm::none_of(args, [](const char *a) {
+        return a && llvm::StringRef(a).starts_with("--driver-mode=");
+      }))
+    args.insert(args.begin() + 1, "--driver-mode=flang");
+
   // Not in the frontend mode - continue in the compiler driver mode.
 
   // Create DiagnosticsEngine for the compiler driver
@@ -161,6 +172,17 @@ int main(int argc, const char **argv) {
                                   llvm::sys::getDefaultTargetTriple(), diags,
                                   "flang LLVM compiler");
   theDriver.setTargetAndMode(targetandMode);
+#if defined(__wasm__)
+  // A Wasm host starts every process by instantiating flang and the shared
+  // LLVM libraries again, so run a lone -fc1 job in this process, as clang
+  // does with -cc1 (the driver keeps it out of process when there are more).
+  // The driver may have used the global cl::opt options, so reset them first.
+  auto executeFC1InProcess = [](llvm::SmallVectorImpl<const char *> &argV) {
+    llvm::cl::ResetAllOptionOccurrences();
+    return executeFC1Tool(argV);
+  };
+  theDriver.CC1Main = executeFC1InProcess;
+#endif
   theDriver.setPreferredLinker(FLANG_DEFAULT_LINKER);
 #ifdef FLANG_RUNTIME_F128_MATH_LIB
   theDriver.setFlangF128MathLibrary(FLANG_RUNTIME_F128_MATH_LIB);
@@ -189,7 +211,9 @@ int main(int argc, const char **argv) {
   const llvm::opt::InputArgList &argList = c->getInputArgs();
   bool first = true;
   for (const llvm::opt::Arg *arg : argList) {
-    if (!arg->getOption().matches(clang::options::OPT_INPUT)) {
+    // --driver-mode=flang may have been added above rather than given.
+    if (!arg->getOption().matches(clang::options::OPT_INPUT) &&
+        !arg->getOption().matches(clang::options::OPT_driver_mode)) {
       if (!first) {
         os << ' ';
       }
