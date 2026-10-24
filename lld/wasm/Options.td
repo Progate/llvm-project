@@ -273,6 +273,14 @@ defm stack_first: B<"stack-first",
 def table_base: JJ<"table-base=">,
   HelpText<"Table offset at which to place address taken functions (Defaults to 1)">;
 
+// wasm-ld resolves archive members regardless of their order on the command
+// line, as ELF lld does, so groups need no special handling.
+def start_group: F<"start-group">,
+  HelpText<"Ignored for compatibility with GNU">;
+
+def end_group: F<"end-group">,
+  HelpText<"Ignored for compatibility with GNU">;
+
 defm whole_archive: B<"whole-archive",
     "Force load of all members in a static library",
     "Do not force load of all members in a static library (default)">;
@@ -298,6 +306,8 @@ def: F<"dn">, Alias<Bstatic>, HelpText<"Alias for --Bstatic">;
 def: F<"non_shared">, Alias<Bstatic>, HelpText<"Alias for --Bstatic">;
 def: F<"static">, Alias<Bstatic>, HelpText<"Alias for --Bstatic">;
 def: Flag<["-"], "E">, Alias<export_dynamic>, HelpText<"Alias for --export-dynamic">;
+def: Flag<["-"], "(">, Alias<start_group>, HelpText<"Alias for --start-group">;
+def: Flag<["-"], ")">, Alias<end_group>, HelpText<"Alias for --end-group">;
 def: Flag<["-"], "i">, Alias<initial_memory>;
 def: Separate<["--", "-"], "library">, Alias<library>;
 def: Joined<["--", "-"], "library=">, Alias<library>;

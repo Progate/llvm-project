@@ -350,7 +350,7 @@
 
 // RUN: %clang -### --target=wasm32-unknown-linux-musl --sysroot=/foo -shared %s 2>&1 \
 // RUN:   | FileCheck -check-prefix=LINK_LINUX_MUSL_SHARED %s
-// LINK_LINUX_MUSL_SHARED: wasm-ld{{.*}}" "-m" "wasm32"{{.*}} "-L/foo/usr/lib/wasm32-linux-musl" "-shared" "--experimental-pic" "--unresolved-symbols=import-dynamic" "--import-memory" "--import-table" {{.*}}
+// LINK_LINUX_MUSL_SHARED: wasm-ld{{.*}}" "-m" "wasm32"{{.*}} "-L/foo/usr/lib/wasm32-linux-musl" "-shared" "--experimental-pic" "--unresolved-symbols=import-dynamic" "-Bsymbolic-functions" "--import-memory" "--import-table" {{.*}}
 // LINK_LINUX_MUSL_SHARED-NOT: crt1.o
 // LINK_LINUX_MUSL_SHARED-NOT: crti.o
 
@@ -361,7 +361,7 @@
 // RUN:   | FileCheck -check-prefix=LINK_LINUX_MUSL_THREADS %s
 // LINK_LINUX_MUSL_THREADS: wasm-ld{{.*}}" "-m" "wasm32"{{.*}} "-L/foo/usr/lib/wasm32-linux-musl-threads"
 // LINK_LINUX_MUSL_THREADS-SAME: "-pie"
-// LINK_LINUX_MUSL_THREADS-SAME: "--shared-memory" "--import-memory" "--max-memory=4294967296" "-lpthread" "-lc" "{{.*[/\\]}}wasm32-unknown-linux-musl{{(/threads/)?}}libclang_rt.builtins.a" "--as-needed" "-lunwind" "--no-as-needed"
+// LINK_LINUX_MUSL_THREADS-SAME: "--shared-memory" "--import-memory" "--max-memory=4294967296" "--export-memory" "-lpthread" "-lc" "{{.*[/\\]}}wasm32-unknown-linux-musl{{(/threads/)?}}libclang_rt.builtins.a" "--as-needed" "-lunwind" "--no-as-needed"
 
 // `-rdynamic` on `wasm32-unknown-linux-musl` exports symbols to the dynamic
 // linker.

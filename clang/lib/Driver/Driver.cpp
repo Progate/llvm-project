@@ -5560,7 +5560,19 @@ void Driver::BuildJobs(Compilation &C) const {
 
   // If we have more than one job, then disable integrated-cc1 for now. Do this
   // also when we need to report process execution statistics.
-  if (C.getJobs().size() > 1 || CCPrintProcessStats)
+#if defined(__wasm__)
+  // When the driver itself runs as WebAssembly (e.g. inside a browser-hosted
+  // OS), starting a process means instantiating the compiler and its shared
+  // libraries again, which costs far more than a native fork/exec. Keep a lone
+  // cc1 job in-process even when a link job follows it; several cc1 jobs still
+  // run out of process, as on other hosts.
+  bool DisableIntegratedCC1 =
+      llvm::count_if(C.getJobs(),
+                     [](const Command &J) { return J.InProcess; }) > 1;
+#else
+  bool DisableIntegratedCC1 = C.getJobs().size() > 1;
+#endif
+  if (DisableIntegratedCC1 || CCPrintProcessStats)
     for (auto &J : C.getJobs())
       J.InProcess = false;
 

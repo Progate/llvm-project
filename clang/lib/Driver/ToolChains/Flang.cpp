@@ -1367,9 +1367,16 @@ void Flang::ConstructJob(Compilation &C, const JobAction &JA,
   const char *Exec = isClangDriverWithFlangMode
                          ? Args.MakeArgString(D.GetProgramPath("flang", TC))
                          : D.getDriverProgramPath();
-  C.addCommand(std::make_unique<Command>(JA, *this,
-                                         ResponseFileSupport::AtFileUTF8(),
-                                         Exec, CmdArgs, Inputs, Output));
+  // When the flang driver provides CC1Main, run -fc1 in the driver's process
+  // (clang driving flang still has to execute the flang binary).
+  if (D.CC1Main && !isClangDriverWithFlangMode && !D.CCGenDiagnostics)
+    C.addCommand(std::make_unique<CC1Command>(JA, *this,
+                                              ResponseFileSupport::AtFileUTF8(),
+                                              Exec, CmdArgs, Inputs, Output));
+  else
+    C.addCommand(std::make_unique<Command>(JA, *this,
+                                           ResponseFileSupport::AtFileUTF8(),
+                                           Exec, CmdArgs, Inputs, Output));
 }
 
 Flang::Flang(const ToolChain &TC) : Tool("flang", "flang frontend", TC) {}
