@@ -85,6 +85,11 @@ public:
 
   bool isLocal() const;
   bool isWeak() const;
+
+  // Whether references from the output bind directly to this definition
+  // rather than to whichever definition the dynamic linker finds first
+  // (-Bsymbolic and its variants, as in ELF).
+  bool isBoundLocally() const;
   bool isHidden() const;
   bool isTLS() const;
 

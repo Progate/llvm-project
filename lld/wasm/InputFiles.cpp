@@ -488,6 +488,13 @@ void SharedFile::parse() {
       symbols.push_back(s);
     }
   }
+
+  // A shared library refers to symbols defined elsewhere through `env`
+  // imports, and to their addresses through `GOT.func` / `GOT.mem` imports.
+  for (const WasmImport &import : wasmObj->imports())
+    if (import.Module == "env" || import.Module == "GOT.func" ||
+        import.Module == "GOT.mem")
+      requiredSymbols.push_back(import.Field);
 }
 
 // Returns the alignment for a custom section. This is used to concatenate

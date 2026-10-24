@@ -46,13 +46,17 @@ enum class UnresolvedPolicy { ReportError, Warn, Ignore, ImportDynamic };
 // For --build-id.
 enum class BuildIdKind { None, Fast, Sha1, Hexstring, Uuid };
 
+// For -Bsymbolic and its variants: which definitions in a shared library
+// references bind to directly, as in ELF.
+enum class BsymbolicKind { None, NonWeakFunctions, Functions, NonWeak, All };
+
 // This struct contains the global configuration for the linker.
 // Most fields are direct mapping from the command line options
 // and such fields have the same name as the corresponding options.
 // Most fields are initialized by the driver.
 struct Config {
   bool allowMultipleDefinition;
-  bool bsymbolic;
+  BsymbolicKind bsymbolic = BsymbolicKind::None;
   bool checkFeatures;
   bool compressRelocations;
   bool demangle;

@@ -38,6 +38,15 @@ multiclass B<string name, string help1, string help2> {
 // The following flags are shared with the ELF linker
 def Bsymbolic: F<"Bsymbolic">, HelpText<"Bind defined symbols locally">;
 
+def Bsymbolic_non_weak: F<"Bsymbolic-non-weak">,
+  HelpText<"Bind non-weak defined symbols locally">;
+
+def Bsymbolic_functions: F<"Bsymbolic-functions">,
+  HelpText<"Bind defined function symbols locally">;
+
+def Bsymbolic_non_weak_functions: F<"Bsymbolic-non-weak-functions">,
+  HelpText<"Bind non-weak defined function symbols locally">;
+
 def Bdynamic: F<"Bdynamic">, HelpText<"Link against shared libraries">;
 
 def Bstatic: F<"Bstatic">, HelpText<"Do not link against shared libraries (default)">;

@@ -28,7 +28,7 @@ static bool requiresGOTAccess(const Symbol *sym) {
     return false;
   // With `-Bsymbolic` (or when building an executable) as don't need to use
   // the GOT for symbols that are defined within the current module.
-  if (sym->isDefined() && (!ctx.arg.shared || ctx.arg.bsymbolic))
+  if (sym->isBoundLocally())
     return false;
   return true;
 }
