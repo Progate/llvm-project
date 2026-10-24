@@ -165,6 +165,11 @@ public:
   // resolves to them (as in ELF).
   bool isNeeded;
 
+  // The symbols this library imports. As in ELF, a definition of one of them
+  // in the output is exported so that the dynamic linker can bind the
+  // library's reference to it.
+  llvm::SmallVector<StringRef, 0> requiredSymbols;
+
   static bool classof(const InputFile *f) { return f->kind() == SharedKind; }
 };
 

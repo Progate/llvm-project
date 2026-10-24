@@ -1540,6 +1540,15 @@ void LinkerDriver::linkerMain(ArrayRef<const char *> argsArr) {
   // Any remaining lazy symbols should be demoted to Undefined
   demoteLazySymbols();
 
+  // As in ELF, a symbol defined here that a shared library we link against
+  // references is exported, so that the dynamic linker binds the library's
+  // reference to it (an executable's replacement operator new, for example).
+  for (SharedFile *f : ctx.sharedFiles)
+    for (StringRef name : f->requiredSymbols)
+      if (Symbol *sym = symtab->find(name))
+        if (sym->isDefined() && !sym->isLocal() && !sym->isHidden())
+          sym->forceExport = true;
+
   // Do size optimizations: garbage collection
   markLive();
 
