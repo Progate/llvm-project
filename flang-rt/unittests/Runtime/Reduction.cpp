@@ -585,6 +585,40 @@ TEST(Reductions, FindlocNumeric) {
   scalarResult.Destroy();
 }
 
+// The C entry points for complex SUM, DOT_PRODUCT and REDUCE
+// (complex-reduction.c) forward to the C++ implementations, so their
+// parameters are those of the C++ functions in reduction.h and reduce.h.
+// Call them through declarations that match complex-reduction.h.
+extern "C" {
+std::complex<double> RTNAME(SumComplex8)(const Descriptor *, const char *source,
+    int line, int dim, const Descriptor *mask);
+std::complex<double> RTNAME(DotProductComplex8)(const Descriptor *,
+    const Descriptor *, const char *source, int line);
+std::complex<double> RTNAME(ReduceComplex8Ref)(const Descriptor *,
+    std::complex<double> (*)(
+        const std::complex<double> *, const std::complex<double> *),
+    const char *source, int line, int dim, const Descriptor *mask,
+    const std::complex<double> *identity, bool ordered);
+}
+
+static std::complex<double> CMultiply(
+    const std::complex<double> *x, const std::complex<double> *y) {
+  return *x * *y;
+}
+
+TEST(Reductions, ComplexCEntryPoints) {
+  auto vector{MakeArray<TypeCategory::Complex, 8>(std::vector<int>{3},
+      std::vector<std::complex<double>>{{1.0, 2.0}, {3.0, -1.0}, {0.5, 0.5}})};
+  EXPECT_EQ(RTNAME(SumComplex8)(vector.get(), __FILE__, __LINE__, 0, nullptr),
+      (std::complex<double>{4.5, 1.5}));
+  EXPECT_EQ(
+      RTNAME(DotProductComplex8)(vector.get(), vector.get(), __FILE__, __LINE__),
+      (std::complex<double>{15.5, 0.0}));
+  EXPECT_EQ(RTNAME(ReduceComplex8Ref)(vector.get(), CMultiply, __FILE__,
+                __LINE__, 0, nullptr, nullptr, true),
+      (std::complex<double>{0.0, 5.0}));
+}
+
 TEST(Reductions, DotProduct) {
   auto realVector{MakeArray<TypeCategory::Real, 8>(
       std::vector<int>{4}, std::vector<double>{0.0, -0.0, 1.0, -2.0})};
