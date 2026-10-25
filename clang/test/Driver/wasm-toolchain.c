@@ -350,9 +350,15 @@
 
 // RUN: %clang -### --target=wasm32-unknown-linux-musl --sysroot=/foo -shared %s 2>&1 \
 // RUN:   | FileCheck -check-prefix=LINK_LINUX_MUSL_SHARED %s
-// LINK_LINUX_MUSL_SHARED: wasm-ld{{.*}}" "-m" "wasm32"{{.*}} "-L/foo/usr/lib/wasm32-linux-musl" "-shared" "--experimental-pic" "--unresolved-symbols=import-dynamic" "-Bsymbolic-functions" "--import-memory" "--import-table" {{.*}}
+// LINK_LINUX_MUSL_SHARED: wasm-ld{{.*}}" "-m" "wasm32"{{.*}} "-L/foo/usr/lib/wasm32-linux-musl" "-shared" "--experimental-pic" "--unresolved-symbols=import-dynamic" "--import-memory" "--import-table" {{.*}}
 // LINK_LINUX_MUSL_SHARED-NOT: crt1.o
 // LINK_LINUX_MUSL_SHARED-NOT: crti.o
+
+// Like gcc -shared on Linux, functions stay preemptible: the driver does not
+// bind them with -Bsymbolic*.
+// RUN: %clang -### --target=wasm32-unknown-linux-musl --sysroot=/foo -shared %s 2>&1 \
+// RUN:   | FileCheck -check-prefix=LINK_LINUX_MUSL_SHARED_PREEMPTIBLE %s
+// LINK_LINUX_MUSL_SHARED_PREEMPTIBLE-NOT: Bsymbolic
 
 // `-pthread` on `wasm32-unknown-linux-musl` switches to the threads multiarch
 // dir, adds shared memory to the link, and picks the threads builtins.
