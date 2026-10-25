@@ -253,33 +253,21 @@ constexpr TypeBuilderFunc getModel<void (*)(int)>() {
         mlir::FunctionType::get(context, /*inputs=*/{}, /*results*/ {}));
   };
 }
+// MemcpyFct and MemmoveFct take std::size_t, which is unsigned int on 32-bit
+// hosts, unsigned long on LP64 and unsigned __int64 on LLP64; spelling one of
+// those leaves the others without a model and the runtime calls fail to link.
 template <>
 constexpr TypeBuilderFunc
-getModel<void *(*)(void *, const void *, unsigned long)>() {
+getModel<void *(*)(void *, const void *, std::size_t)>() {
   return [](mlir::MLIRContext *context) -> mlir::Type {
     auto voidPtrTy =
         fir::LLVMPointerType::get(context, mlir::IntegerType::get(context, 8));
-    auto unsignedLongTy =
-        mlir::IntegerType::get(context, 8 * sizeof(unsigned long));
+    auto sizeTy = mlir::IntegerType::get(context, 8 * sizeof(std::size_t));
     auto funcTy = mlir::FunctionType::get(
-        context, {voidPtrTy, voidPtrTy, unsignedLongTy}, {voidPtrTy});
+        context, {voidPtrTy, voidPtrTy, sizeTy}, {voidPtrTy});
     return fir::LLVMPointerType::get(context, funcTy);
   };
 }
-#ifdef _MSC_VER
-template <>
-constexpr TypeBuilderFunc
-getModel<void *(*)(void *, const void *, unsigned __int64)>() {
-  return [](mlir::MLIRContext *context) -> mlir::Type {
-    auto voidPtrTy =
-        fir::LLVMPointerType::get(context, mlir::IntegerType::get(context, 8));
-    auto uint64Ty = mlir::IntegerType::get(context, 64);
-    auto funcTy = mlir::FunctionType::get(
-        context, {voidPtrTy, voidPtrTy, uint64Ty}, {voidPtrTy});
-    return fir::LLVMPointerType::get(context, funcTy);
-  };
-}
-#endif
 template <>
 constexpr TypeBuilderFunc getModel<void (*)(void)>() {
   return [](mlir::MLIRContext *context) -> mlir::Type {
