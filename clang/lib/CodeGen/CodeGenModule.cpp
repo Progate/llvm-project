@@ -8353,6 +8353,23 @@ void CodeGenModule::EmitMainVoidAlias() {
         F->getReturnType()->isIntegerTy(Context.getTargetInfo().getIntWidth())) {
       auto *GA = llvm::GlobalAlias::create("__main_void", F);
       GA->setVisibility(llvm::GlobalValue::HiddenVisibility);
+      // On Linux, crt1 calls main through the one name every form of main
+      // defines, as ELF's crt1 references main, so the reference can be
+      // strong: a main kept in an archive (libgtest_main.a) is pulled in like
+      // on ELF, and a program without main fails to link instead of trapping
+      // at startup. main(int, char **) is already __main_argc_argv; give the
+      // no-argument form an entry of that name that drops the arguments.
+      if (getTriple().isOSLinux() && !getModule().getFunction("__main_argc_argv")) {
+        llvm::Type *IntTy = F->getReturnType();
+        llvm::Type *ArgTys[] = {IntTy, llvm::PointerType::getUnqual(getLLVMContext())};
+        auto *Entry = llvm::Function::Create(
+            llvm::FunctionType::get(IntTy, ArgTys, /*isVarArg=*/false),
+            llvm::GlobalValue::ExternalLinkage, "__main_argc_argv", getModule());
+        Entry->setVisibility(llvm::GlobalValue::HiddenVisibility);
+        llvm::IRBuilder<> Builder(
+            llvm::BasicBlock::Create(getLLVMContext(), "entry", Entry));
+        Builder.CreateRet(Builder.CreateCall(F));
+      }
     }
   }
 }
