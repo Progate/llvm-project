@@ -1533,7 +1533,7 @@ Scope *ModFileReader::Read(SourceName name, std::optional<bool> isIntrinsic,
   bool ignoreChecksumMismatch{
       context_.langOptions().OffloadDevice && isIntrinsic.value_or(false)};
 
-  std::optional<size_t> requiredHash;
+  std::optional<ModuleCheckSumType> requiredHash;
   if (!ignoreChecksumMismatch) {
     requiredHash = context_.moduleDependences().GetRequiredHash(
         name.ToString(), isIntrinsic.value_or(false));
