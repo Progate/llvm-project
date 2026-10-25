@@ -13,10 +13,16 @@
 #include "clang/Driver/Compilation.h"
 #include "clang/Driver/Driver.h"
 #include "clang/Options/Options.h"
+#include "clang/Driver/Job.h"
+#include "llvm/ADT/StringExtras.h"
+#include "llvm/ADT/StringSet.h"
 #include "llvm/Config/llvm-config.h" // for LLVM_VERSION_STRING
+#include "llvm/Object/Wasm.h"
 #include "llvm/Option/ArgList.h"
 #include "llvm/Support/FileSystem.h"
+#include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Path.h"
+#include "llvm/Support/Program.h"
 #include "llvm/Support/VirtualFileSystem.h"
 
 using namespace clang::driver;
@@ -108,6 +114,140 @@ static bool WantsSharedMemory(const llvm::Triple &Triple, const ArgList &Args) {
   return WantsPthread(Triple, Args) &&
          !WantsCooperativeMultithreading(Triple, Args);
 }
+
+namespace {
+/// On wasm32 Linux, fork works by unwinding and rewinding the stack with
+/// Binaryen's asyncify: the kernel copies the memory between the unwind and
+/// the rewind. libc.so ships with asyncify applied to the functions that can
+/// be on the stack at that point, but the program's own frames must be
+/// instrumented too. So after linking an executable that calls fork, the
+/// driver runs `wasm-opt --asyncify` on it. Programs that do not call fork are
+/// left alone: asyncify instruments every function that can reach an
+/// unwinding import, and every function with an indirect call.
+///
+/// Whether a program calls fork is only known once it is linked, so this
+/// command looks at the linked output when it runs:
+///  - A PIE executable (with a dylink.0 section) calls fork if it imports
+///    fork, _Fork, vfork, forkpty or daemon from libc.so. Its frames can only
+///    be unwound through calls into libc.so functions that libc.so itself was
+///    instrumented for; libc lists them in `libc.asyncify-onlylist` next to
+///    libc.so, and the imports of those become the asyncify imports. The
+///    asyncify state globals are exported for libc.so to import.
+///  - A static executable calls fork if it defines _Fork (from
+///    -lbrowseros-fork); the unwinding import is then the system call itself.
+class WasmForkAsyncifyCommand : public Command {
+  std::string WasmOpt;
+  std::string Output;
+  std::string Onlylist;
+  std::string OptLevel;
+  bool Verbose;
+
+public:
+  WasmForkAsyncifyCommand(const Action &Source, const Tool &Creator,
+                          std::string WasmOpt, const char *Executable,
+                          std::string Output, std::string Onlylist,
+                          std::string OptLevel, bool Verbose,
+                          ArrayRef<InputInfo> Inputs, const InputInfo &Out)
+      : Command(Source, Creator, ResponseFileSupport::None(), Executable, {},
+                Inputs, Out),
+        WasmOpt(std::move(WasmOpt)), Output(std::move(Output)),
+        Onlylist(std::move(Onlylist)), OptLevel(std::move(OptLevel)),
+        Verbose(Verbose) {}
+
+  // Nothing to print ahead of time: whether wasm-opt runs depends on the
+  // linked output. With -v, Execute prints the command when it runs.
+  void Print(llvm::raw_ostream &, const char *, bool,
+             CrashReportInfo * = nullptr) const override {}
+
+  int Execute(ArrayRef<std::optional<StringRef>> Redirects,
+              std::string *ErrMsg, bool *ExecutionFailed) const override {
+    auto Buffer = llvm::MemoryBuffer::getFile(Output);
+    if (!Buffer)
+      return 0;
+    auto Bin = llvm::object::createBinary((*Buffer)->getMemBufferRef());
+    if (!Bin) {
+      llvm::consumeError(Bin.takeError());
+      return 0;
+    }
+    const auto *Wasm = dyn_cast<llvm::object::WasmObjectFile>(Bin->get());
+    if (!Wasm)
+      return 0;
+
+    std::vector<std::string> Imports;
+    bool ExportGlobals = false;
+    if (Wasm->isSharedObject()) {
+      static const llvm::StringSet<> ForkNames = {"fork", "_Fork", "vfork",
+                                                  "forkpty", "daemon"};
+      llvm::StringSet<> Rewindable;
+      bool KnownRewindable = false;
+      auto List = Onlylist.empty()
+                      ? llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>>(
+                            std::make_error_code(std::errc::no_such_file_or_directory))
+                      : llvm::MemoryBuffer::getFile(Onlylist);
+      if (List) {
+        KnownRewindable = true;
+        SmallVector<StringRef> Lines;
+        (*List)->getBuffer().split(Lines, '\n', -1, false);
+        for (StringRef Line : Lines)
+          if (!Line.trim().empty())
+            Rewindable.insert(Line.trim());
+      }
+      bool CallsFork = false;
+      for (const llvm::wasm::WasmImport &Import : Wasm->imports()) {
+        if (Import.Kind != llvm::wasm::WASM_EXTERNAL_FUNCTION)
+          continue;
+        if (Import.Module == "env" && ForkNames.contains(Import.Field))
+          CallsFork = true;
+        if (Import.Module == "browser_os_linux" ||
+            (Import.Module == "env" && KnownRewindable &&
+             Rewindable.contains(Import.Field)))
+          Imports.push_back((Import.Module + "." + Import.Field).str());
+      }
+      if (!CallsFork)
+        return 0;
+      // Without libc's list every call into libc.so may unwind.
+      if (!KnownRewindable)
+        Imports.push_back("env.*");
+      ExportGlobals = true;
+    } else {
+      bool CallsFork = llvm::any_of(
+          Wasm->debugNames(), [](const llvm::wasm::WasmDebugName &Name) {
+            return Name.Type == llvm::wasm::NameType::FUNCTION &&
+                   Name.Name == "_Fork";
+          });
+      if (!CallsFork)
+        return 0;
+      Imports.push_back("browser_os_linux.syscall");
+    }
+
+    if (WasmOpt.empty()) {
+      getCreator().getToolChain().getDriver().Diag(
+          diag::warn_drv_wasm_fork_without_asyncify)
+          << Output;
+      return 0;
+    }
+
+    std::vector<std::string> Args = {WasmOpt, Output, "--asyncify",
+                                     "--pass-arg=asyncify-imports@" +
+                                         llvm::join(Imports, ",")};
+    if (ExportGlobals)
+      Args.push_back("--pass-arg=asyncify-export-globals");
+    if (!OptLevel.empty())
+      Args.push_back("-O" + OptLevel);
+    Args.push_back("-o");
+    Args.push_back(Output);
+    SmallVector<StringRef> Argv(Args.begin(), Args.end());
+    if (Verbose) {
+      for (StringRef Arg : Argv)
+        llvm::errs() << " \"" << Arg << "\"";
+      llvm::errs() << "\n";
+    }
+    return llvm::sys::ExecuteAndWait(WasmOpt, Argv, std::nullopt, Redirects,
+                                     /*SecondsToWait=*/0, /*MemoryLimit=*/0,
+                                     ErrMsg, ExecutionFailed);
+  }
+};
+} // namespace
 
 void wasm::Linker::ConstructJob(Compilation &C, const JobAction &JA,
                                 const InputInfo &Output,
@@ -292,9 +432,13 @@ void wasm::Linker::ConstructJob(Compilation &C, const JobAction &JA,
   CmdArgs.push_back(Output.getFilename());
 
   // Don't use wasm-opt by default on `wasip2` as it doesn't have support for
-  // components at this time. Retain the historical default otherwise, though,
-  // of running `wasm-opt` by default.
-  bool WasmOptDefault = !TargetBuildsComponents(ToolChain.getTriple());
+  // components at this time. Nor on wasm32 Linux, where -O means what it does
+  // for the compiler on other Linux targets and the linked program is what
+  // wasm-ld produced; wasm-opt there is the asyncify step for fork (below).
+  // Retain the historical default otherwise, though, of running `wasm-opt` by
+  // default.
+  bool WasmOptDefault =
+      !TargetBuildsComponents(ToolChain.getTriple()) && !IsWasmLinux;
   bool RunWasmOpt = Args.hasFlag(options::OPT_wasm_opt,
                                  options::OPT_no_wasm_opt, WasmOptDefault);
 
@@ -315,6 +459,32 @@ void wasm::Linker::ConstructJob(Compilation &C, const JobAction &JA,
   C.addCommand(std::make_unique<Command>(JA, *this,
                                          ResponseFileSupport::AtFileCurCP(),
                                          Linker, CmdArgs, Inputs, Output));
+
+  if (IsWasmLinux && !Args.hasArg(options::OPT_shared, options::OPT_r) &&
+      Output.isFilename()) {
+    std::string AsyncifyOpt = ToolChain.GetProgramPath("wasm-opt");
+    if (AsyncifyOpt == "wasm-opt")
+      AsyncifyOpt.clear();
+    std::string OptLevel;
+    if (const Arg *A = Args.getLastArg(options::OPT_O_Group)) {
+      if (A->getOption().matches(options::OPT_O4) ||
+          A->getOption().matches(options::OPT_Ofast))
+        OptLevel = "4";
+      else if (A->getOption().matches(options::OPT_O))
+        OptLevel = A->getValue();
+      if (OptLevel == "0")
+        OptLevel.clear();
+    }
+    // libc's list of rewindable functions sits next to libc.so
+    std::string Onlylist = ToolChain.GetFilePath("libc.asyncify-onlylist");
+    if (Onlylist == "libc.asyncify-onlylist")
+      Onlylist.clear();
+    C.addCommand(std::make_unique<WasmForkAsyncifyCommand>(
+        JA, *this, AsyncifyOpt,
+        Args.MakeArgString(AsyncifyOpt.empty() ? "wasm-opt" : AsyncifyOpt),
+        Output.getFilename(), Onlylist, OptLevel, Args.hasArg(options::OPT_v),
+        Inputs, Output));
+  }
 
   if (Arg *A = Args.getLastArg(options::OPT_O_Group)) {
     if (!WasmOptPath.empty()) {
