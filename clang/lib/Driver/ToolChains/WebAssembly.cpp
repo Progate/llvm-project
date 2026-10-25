@@ -167,14 +167,6 @@ void wasm::Linker::ConstructJob(Compilation &C, const JobAction &JA,
       CmdArgs.push_back("--experimental-pic");
       // Like ELF -shared, unresolved names are resolved at run time.
       CmdArgs.push_back("--unresolved-symbols=import-dynamic");
-      // Bind calls to functions defined in the library to those definitions,
-      // as distributions do by default on ELF (e.g. Ubuntu's
-      // -Wl,-Bsymbolic-functions). Without it every call to an exported
-      // function from inside the library goes through the dynamic linker's
-      // import, which costs an indirect call on Wasm. Data stays
-      // preemptible, so vague-linkage objects keep a single address across
-      // modules. A later -Wl,-Bsymbolic* overrides this.
-      CmdArgs.push_back("-Bsymbolic-functions");
     } else if (!IsStatic) {
       CmdArgs.push_back("-pie");
       CmdArgs.push_back("--experimental-pic");
