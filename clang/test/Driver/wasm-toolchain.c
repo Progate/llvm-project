@@ -360,14 +360,15 @@
 // RUN:   | FileCheck -check-prefix=LINK_LINUX_MUSL_SHARED_PREEMPTIBLE %s
 // LINK_LINUX_MUSL_SHARED_PREEMPTIBLE-NOT: Bsymbolic
 
-// `-pthread` on `wasm32-unknown-linux-musl` switches to the threads multiarch
-// dir, adds shared memory to the link, and picks the threads builtins.
+// `-pthread` on `wasm32-unknown-linux-musl` adds shared memory to the link and
+// keeps the same multiarch dir and builtins (there is one build of them).
 
 // RUN: %clang -### --target=wasm32-unknown-linux-musl --sysroot=/foo -pthread %s 2>&1 \
 // RUN:   | FileCheck -check-prefix=LINK_LINUX_MUSL_THREADS %s
-// LINK_LINUX_MUSL_THREADS: wasm-ld{{.*}}" "-m" "wasm32"{{.*}} "-L/foo/usr/lib/wasm32-linux-musl-threads"
+// LINK_LINUX_MUSL_THREADS: wasm-ld{{.*}}" "-m" "wasm32"{{.*}} "-L/foo/usr/lib/wasm32-linux-musl"
 // LINK_LINUX_MUSL_THREADS-SAME: "-pie"
-// LINK_LINUX_MUSL_THREADS-SAME: "--shared-memory" "--import-memory" "--max-memory=4294967296" "--export-memory" "-lpthread" "-lc" "{{.*[/\\]}}wasm32-unknown-linux-musl{{(/threads/)?}}libclang_rt.builtins.a" "--as-needed" "-lunwind" "--no-as-needed"
+// LINK_LINUX_MUSL_THREADS-SAME: "--shared-memory" "--import-memory" "--max-memory=4294967296" "--export-memory" "-lpthread" "-lc" "{{.*[/\\]}}wasm32-unknown-linux-musl{{[/\\]}}libclang_rt.builtins.a" "--as-needed" "-lunwind" "--no-as-needed"
+// LINK_LINUX_MUSL_THREADS-NOT: wasm32-linux-musl-threads
 
 // `-rdynamic` on `wasm32-unknown-linux-musl` exports symbols to the dynamic
 // linker.

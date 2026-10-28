@@ -89,9 +89,6 @@ private:
                             FileType Type = ToolChain::FT_Static,
                             bool IsFortran = false) const override;
 
-  // True when -pthread selects the threads runtime dir on wasm32 Linux.
-  bool UseThreadsRuntimeDir = false;
-
   void addLibCxxIncludePaths(const llvm::opt::ArgList &DriverArgs,
                              llvm::opt::ArgStringList &CC1Args) const;
   void addLibStdCXXIncludePaths(const llvm::opt::ArgList &DriverArgs,
