@@ -537,24 +537,11 @@ WebAssembly::WebAssembly(const Driver &D, const llvm::Triple &Triple,
   auto SysRoot = getDriver().SysRoot;
   if (IsNonWaliLinux(getTriple())) {
     // wasm32 Linux (non-WALI) uses the Debian multiarch layout, shared with
-    // the BrowserOS filesystem: libraries live under /usr/lib/<multiarch>,
-    // with -threads selecting the shared-memory variant.
-    UseThreadsRuntimeDir = WantsPthread(Triple, Args);
-    if (UseThreadsRuntimeDir) {
-      // The runtime dir below is searched by getCompilerRT before the plain
-      // lib/<triple> dir, so -pthread picks libclang_rt.builtins.a (and
-      // flang_rt) built with atomics. The base ToolChain ctor already pushed
-      // the non-threads runtime dir, and virtual dispatch does not reach this
-      // class from inside a base constructor.
-      SmallString<128> ThreadsRT(getDriver().ResourceDir);
-      llvm::sys::path::append(ThreadsRT, "lib", getTriple().str(), "threads");
-      getLibraryPaths().insert(getLibraryPaths().begin(),
-                               std::string(ThreadsRT));
-    }
-    std::string MultiarchTriple =
+    // the BrowserOS filesystem: libraries live under /usr/lib/<multiarch>.
+    // As on other Linux targets whose libc includes pthreads, there is one
+    // build of them; -pthread does not select another dir.
+    const std::string MultiarchTriple =
         getMultiarchTriple(getDriver(), Triple, SysRoot);
-    if (UseThreadsRuntimeDir)
-      MultiarchTriple += "-threads";
     AppendLibDirAndLTODir(getFilePaths(), *this, Args,
                           SysRoot + "/usr/lib/" + MultiarchTriple);
   } else if (getTriple().getOS() == llvm::Triple::UnknownOS) {
@@ -591,14 +578,11 @@ const char *WebAssembly::getDefaultLinker() const {
 }
 
 std::optional<std::string> WebAssembly::getRuntimePath() const {
-  // On wasm32 Linux (non-WALI) the thread-enabled runtime libraries
-  // (libclang_rt.builtins.a, flang_rt) live in a `threads` subdirectory of the
-  // per-target library dir, matching /usr/lib/wasm32-linux-musl-threads.
+  // On wasm32 Linux (non-WALI) the runtime libraries (libclang_rt.builtins.a)
+  // live in the per-target library dir, whether or not -pthread is given.
   if (IsNonWaliLinux(getTriple())) {
     SmallString<128> P(getDriver().ResourceDir);
     llvm::sys::path::append(P, "lib", getTriple().str());
-    if (UseThreadsRuntimeDir)
-      llvm::sys::path::append(P, "threads");
     return std::string(P);
   }
   return ToolChain::getRuntimePath();
