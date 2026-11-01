@@ -20,6 +20,7 @@
 #include "llvm/Object/Wasm.h"
 #include "llvm/Option/ArgList.h"
 #include "llvm/Support/FileSystem.h"
+#include "llvm/Support/FileUtilities.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/Program.h"
@@ -135,6 +136,12 @@ namespace {
 ///    asyncify state globals are exported for libc.so to import.
 ///  - A static executable calls fork if it defines _Fork (from
 ///    -lbrowseros-fork); the unwinding import is then the system call itself.
+///
+/// If wasm-opt is missing or cannot apply asyncify (Binaryen's asyncify does
+/// not handle every program; it rejects try_table, for example), the link
+/// still succeeds with the program wasm-ld wrote, and the driver warns that
+/// fork will fail. wasm-opt writes to a temporary file that replaces the
+/// output only on success, so a failed run never leaves a partial program.
 class WasmForkAsyncifyCommand : public Command {
   std::string WasmOpt;
   std::string Output;
@@ -227,6 +234,22 @@ public:
       return 0;
     }
 
+    // The instrumented program is written next to the output and renamed over
+    // it, which needs the same file system; it keeps the output's mode, which
+    // wasm-ld made executable.
+    SmallString<128> Instrumented, Messages;
+    auto Mode = llvm::sys::fs::getPermissions(Output);
+    if (!Mode ||
+        llvm::sys::fs::createUniqueFile(Output + "-asyncify-%%%%%%", Instrumented,
+                                        *Mode) ||
+        llvm::sys::fs::createTemporaryFile("asyncify", "txt", Messages)) {
+      if (ErrMsg)
+        *ErrMsg = "cannot create a temporary file for wasm-opt";
+      return 1;
+    }
+    llvm::FileRemover RemoveInstrumented(Instrumented);
+    llvm::FileRemover RemoveMessages(Messages);
+
     std::vector<std::string> Args = {WasmOpt, Output, "--asyncify",
                                      "--pass-arg=asyncify-imports@" +
                                          llvm::join(Imports, ",")};
@@ -235,16 +258,43 @@ public:
     if (!OptLevel.empty())
       Args.push_back("-O" + OptLevel);
     Args.push_back("-o");
-    Args.push_back(Output);
+    Args.push_back(std::string(Instrumented));
     SmallVector<StringRef> Argv(Args.begin(), Args.end());
     if (Verbose) {
       for (StringRef Arg : Argv)
         llvm::errs() << " \"" << Arg << "\"";
       llvm::errs() << "\n";
     }
-    return llvm::sys::ExecuteAndWait(WasmOpt, Argv, std::nullopt, Redirects,
-                                     /*SecondsToWait=*/0, /*MemoryLimit=*/0,
-                                     ErrMsg, ExecutionFailed);
+    // wasm-opt's messages go to a file so that a failure can be reported as
+    // the reason fork will not work, instead of as a failed link.
+    std::optional<StringRef> WasmOptRedirects[] = {
+        Redirects.size() > 0 ? Redirects[0] : std::nullopt,
+        Redirects.size() > 1 ? Redirects[1] : std::nullopt,
+        StringRef(Messages)};
+    std::string RunError;
+    int Status = llvm::sys::ExecuteAndWait(
+        WasmOpt, Argv, std::nullopt, WasmOptRedirects, /*SecondsToWait=*/0,
+        /*MemoryLimit=*/0, &RunError);
+    StringRef Printed;
+    auto Log = llvm::MemoryBuffer::getFile(Messages);
+    if (Log)
+      Printed = (*Log)->getBuffer();
+    if (Status == 0) {
+      llvm::errs() << Printed;
+      if (std::error_code EC =
+              llvm::sys::fs::setPermissions(Instrumented, *Mode);
+          EC || (EC = llvm::sys::fs::rename(Instrumented, Output))) {
+        if (ErrMsg)
+          *ErrMsg = "cannot replace '" + Output + "': " + EC.message();
+        return 1;
+      }
+      return 0;
+    }
+    StringRef Reason = Printed.trim().split('\n').first.trim();
+    getCreator().getToolChain().getDriver().Diag(
+        diag::warn_drv_wasm_fork_asyncify_failed)
+        << Output << (Reason.empty() ? StringRef(RunError) : Reason);
+    return 0;
   }
 };
 } // namespace

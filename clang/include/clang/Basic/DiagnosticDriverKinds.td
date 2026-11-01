@@ -979,7 +979,11 @@ def warn_drv_gcc_install_dir_libstdcxx : Warning<
 def warn_drv_wasm_fork_without_asyncify : Warning<
     "'%0' calls fork, but 'wasm-opt' was not found to apply asyncify to it; "
     "fork will fail with ENOSYS">,
-    InGroup<DiagGroup<"wasm-fork-asyncify">>;
+    InGroup<WebAssemblyForkAsyncify>;
+def warn_drv_wasm_fork_asyncify_failed : Warning<
+    "'%0' calls fork, but 'wasm-opt' could not apply asyncify to it (%1); "
+    "fork will fail with ENOSYS">,
+    InGroup<WebAssemblyForkAsyncify>;
 
 def err_drv_reflection_requires_cxx26 : Error<
   "option '%0' is only supported when compiling in C++26 mode">;
