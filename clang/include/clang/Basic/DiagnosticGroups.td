@@ -1918,6 +1918,7 @@ in addition with the pragmas or -fmax-tokens flag to get any warnings.
 }
 
 def WebAssemblyExceptionSpec : DiagGroup<"wasm-exception-spec">;
+def WebAssemblyForkAsyncify : DiagGroup<"wasm-fork-asyncify">;
 
 def RTTI : DiagGroup<"rtti">;
 

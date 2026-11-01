@@ -4,9 +4,10 @@
 // asyncify. After linking an executable that calls fork, the driver runs
 // `wasm-opt --asyncify` on it; other programs are left as wasm-ld wrote them.
 
-// RUN: rm -rf %t && mkdir -p %t/bin %t/empty %t/sysroot/usr/lib/wasm32-linux-musl
-// RUN: printf '#!/bin/sh\necho "$@" > %t/wasm-opt.args\n' > %t/bin/wasm-opt
-// RUN: chmod +x %t/bin/wasm-opt
+// RUN: rm -rf %t && mkdir -p %t/bin %t/fail %t/empty %t/sysroot/usr/lib/wasm32-linux-musl
+// RUN: printf '#!/bin/sh\necho "$@" > %t/wasm-opt.args\neval out=\\${$#}\ncp "$1" "$out"\n' > %t/bin/wasm-opt
+// RUN: printf '#!/bin/sh\necho "Fatal: Unsupported instruction for Flatten: TryTable" >&2\nexit 1\n' > %t/fail/wasm-opt
+// RUN: chmod +x %t/bin/wasm-opt %t/fail/wasm-opt
 // RUN: printf 'fork\nqsort\n' > %t/sysroot/usr/lib/wasm32-linux-musl/libc.asyncify-onlylist
 
 // A PIE executable that imports fork from libc.so. The asyncify imports are
@@ -16,14 +17,19 @@
 // RUN:   -nostdlib -Wl,--unresolved-symbols=import-dynamic -O2 -DFORK %s \
 // RUN:   -o %t/fork.wasm
 // RUN: FileCheck --check-prefix=PIE %s < %t/wasm-opt.args
-// PIE: {{.*}}fork.wasm --asyncify --pass-arg=asyncify-imports@env.{{(fork,env.qsort|qsort,env.fork)}} --pass-arg=asyncify-export-globals -O2 -o {{.*}}fork.wasm
+// PIE: {{.*}}fork.wasm --asyncify --pass-arg=asyncify-imports@env.{{(fork,env.qsort|qsort,env.fork)}} --pass-arg=asyncify-export-globals -O2 -o {{.*}}fork.wasm-asyncify-{{[^ ]*$}}
+
+// wasm-opt writes next to the output, which then replaces the output and keeps
+// the mode wasm-ld gave it.
+// RUN: test -x %t/fork.wasm
+// RUN: not ls %t/fork.wasm-asyncify-* 2>/dev/null
 
 // Without libc's list, every call into libc.so may unwind.
 // RUN: %clang --target=wasm32-unknown-linux-musl --sysroot=%t/empty -B%t/bin \
 // RUN:   -nostdlib -Wl,--unresolved-symbols=import-dynamic -DFORK %s \
 // RUN:   -o %t/nolist.wasm
 // RUN: FileCheck --check-prefix=NOLIST %s < %t/wasm-opt.args
-// NOLIST: {{.*}}nolist.wasm --asyncify --pass-arg=asyncify-imports@env.* --pass-arg=asyncify-export-globals -o {{.*}}nolist.wasm
+// NOLIST: {{.*}}nolist.wasm --asyncify --pass-arg=asyncify-imports@env.* --pass-arg=asyncify-export-globals -o {{.*}}nolist.wasm-asyncify-{{[^ ]*$}}
 
 // A program that does not call fork is left alone.
 // RUN: rm -f %t/wasm-opt.args
@@ -36,7 +42,7 @@
 // RUN: %clang --target=wasm32-unknown-linux-musl --sysroot=%t/sysroot -B%t/bin \
 // RUN:   -nostdlib -static -O1 -DSTATIC %s -o %t/static.wasm
 // RUN: FileCheck --check-prefix=STATIC %s < %t/wasm-opt.args
-// STATIC: {{.*}}static.wasm --asyncify --pass-arg=asyncify-imports@browser_os_linux.syscall -O1 -o {{.*}}static.wasm
+// STATIC: {{.*}}static.wasm --asyncify --pass-arg=asyncify-imports@browser_os_linux.syscall -O1 -o {{.*}}static.wasm-asyncify-{{[^ ]*$}}
 
 // Without wasm-opt the link still succeeds, and the driver says why fork will
 // fail.
@@ -44,6 +50,16 @@
 // RUN:   --sysroot=%t/sysroot -nostdlib -Wl,--unresolved-symbols=import-dynamic \
 // RUN:   -DFORK %s -o %t/nowasmopt.wasm 2>&1 | FileCheck --check-prefix=MISSING %s
 // MISSING: warning: '{{.*}}nowasmopt.wasm' calls fork, but 'wasm-opt' was not found to apply asyncify to it; fork will fail with ENOSYS [-Wwasm-fork-asyncify]
+
+// When wasm-opt cannot apply asyncify (Binaryen rejects try_table, for
+// example), the link still succeeds with the program wasm-ld wrote, and the
+// driver passes on wasm-opt's reason.
+// RUN: %clang --target=wasm32-unknown-linux-musl --sysroot=%t/sysroot -B%t/fail \
+// RUN:   -nostdlib -Wl,--unresolved-symbols=import-dynamic -DFORK %s \
+// RUN:   -o %t/failed.wasm 2>&1 | FileCheck --check-prefix=FAILED %s
+// RUN: test -x %t/failed.wasm
+// RUN: not ls %t/failed.wasm-asyncify-* 2>/dev/null
+// FAILED: warning: '{{.*}}failed.wasm' calls fork, but 'wasm-opt' could not apply asyncify to it (Fatal: Unsupported instruction for Flatten: TryTable); fork will fail with ENOSYS [-Wwasm-fork-asyncify]
 
 // Whether wasm-opt runs depends on the linked output, so -### shows only the
 // link. -O does not run wasm-opt as the optimizer on this target.
