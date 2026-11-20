@@ -364,6 +364,15 @@ void wasm::Linker::ConstructJob(Compilation &C, const JobAction &JA,
       CmdArgs.push_back("-static");
     }
 
+    // As on other Linux targets, the kernel starts a program with argc, argv,
+    // envp and auxv on the initial stack, and the C runtime's _start reads
+    // them from the stack pointer it starts with. The stack pointer of a wasm
+    // program is the __stack_pointer global; a static executable defines it,
+    // so export it for the kernel to set. A PIE imports it from the loader,
+    // and the export is left out.
+    if (!IsShared)
+      CmdArgs.push_back("--export-if-defined=__stack_pointer");
+
     if (!IsStatic) {
       // PIC modules take the memory and function table from the loader: the
       // loader decides where each module's data and table entries go.
@@ -393,8 +402,14 @@ void wasm::Linker::ConstructJob(Compilation &C, const JobAction &JA,
       // A threaded program is instantiated once per thread on the same
       // memory; export it too so the runtime can reach the memory a program
       // was started with, as it does for programs that define their own.
-      if (!IsShared)
+      if (!IsShared) {
         CmdArgs.push_back("--export-memory");
+        // __tls_base, the start of the running thread's TLS block, is the one
+        // global a program defines whose value differs between threads.
+        // Export it by name so the runtime can run several threads of a
+        // program on one instance, switching the global between them.
+        CmdArgs.push_back("--export-if-defined=__tls_base");
+      }
     }
   } else {
     bool IsCommand = true;

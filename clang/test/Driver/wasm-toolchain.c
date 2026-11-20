@@ -334,7 +334,7 @@
 // RUN:   | FileCheck -check-prefix=LINK_LINUX_MUSL %s
 // LINK_LINUX_MUSL: "-cc1"{{.*}} "-o" "[[temp:[^"]*]]"
 // LINK_LINUX_MUSL-NOT: "-fvisibility=hidden"
-// LINK_LINUX_MUSL: wasm-ld{{.*}}" "-m" "wasm32"{{.*}} "-L/foo/usr/lib/wasm32-linux-musl" "{{[^"]*}}Scrt1.o" "{{[^"]*}}crti.o" "-pie" "--experimental-pic" "--import-memory" "--import-table"{{.*}} "[[temp]]" "{{[^"]*}}crtn.o" "-lc" "{{.*[/\\]}}wasm32-unknown-linux-musl{{[/\\]}}libclang_rt.builtins.a" "--as-needed" "-lunwind" "--no-as-needed" "-o" "a.out"
+// LINK_LINUX_MUSL: wasm-ld{{.*}}" "-m" "wasm32"{{.*}} "-L/foo/usr/lib/wasm32-linux-musl" "{{[^"]*}}Scrt1.o" "{{[^"]*}}crti.o" "-pie" "--experimental-pic" "--export-if-defined=__stack_pointer" "--import-memory" "--import-table"{{.*}} "[[temp]]" "{{[^"]*}}crtn.o" "-lc" "{{.*[/\\]}}wasm32-unknown-linux-musl{{[/\\]}}libclang_rt.builtins.a" "--as-needed" "-lunwind" "--no-as-needed" "-o" "a.out"
 
 // `-static` (and `-no-pie`) selects a non-PIC static executable on
 // `wasm32-unknown-linux-musl`.
@@ -345,6 +345,24 @@
 // RUN: %clang -### --target=wasm32-unknown-linux-musl --sysroot=/foo -no-pie %s 2>&1 \
 // RUN:   | FileCheck -check-prefix=LINK_LINUX_MUSL_NOPIE %s
 // LINK_LINUX_MUSL_NOPIE: wasm-ld{{.*}}"{{.*}} "-static" {{.*}}
+
+// The kernel puts argc, argv, envp and auxv on the initial stack and sets the
+// stack pointer of the program to them, so an executable exports
+// __stack_pointer: a static executable defines it, and a PIE, which imports it
+// from the loader, leaves the export out. A shared library does not export it.
+
+// RUN: %clang -### --target=wasm32-unknown-linux-musl --sysroot=/foo -static %s 2>&1 \
+// RUN:   | FileCheck -check-prefix=LINK_LINUX_MUSL_STATIC_SP %s
+// LINK_LINUX_MUSL_STATIC_SP: wasm-ld{{.*}}" {{.*}} "-static" "--export-if-defined=__stack_pointer" {{.*}}
+// RUN: %clang -### --target=wasm32-unknown-linux-musl --sysroot=/foo -no-pie -nostartfiles %s 2>&1 \
+// RUN:   | FileCheck -check-prefix=LINK_LINUX_MUSL_NOPIE_SP %s
+// LINK_LINUX_MUSL_NOPIE_SP: wasm-ld{{.*}}" {{.*}} "-static" "--export-if-defined=__stack_pointer" {{.*}}
+// RUN: %clang -### --target=wasm32-unknown-linux-musl --sysroot=/foo %s 2>&1 \
+// RUN:   | FileCheck -check-prefix=LINK_LINUX_MUSL_PIE_SP %s
+// LINK_LINUX_MUSL_PIE_SP: wasm-ld{{.*}}" {{.*}} "-pie" "--experimental-pic" "--export-if-defined=__stack_pointer" {{.*}}
+// RUN: %clang -### --target=wasm32-unknown-linux-musl --sysroot=/foo -shared %s 2>&1 \
+// RUN:   | FileCheck -check-prefix=LINK_LINUX_MUSL_SHARED_SP %s
+// LINK_LINUX_MUSL_SHARED_SP-NOT: __stack_pointer
 
 // `-shared` on `wasm32-unknown-linux-musl` builds a shared library with no crt.
 
@@ -367,8 +385,22 @@
 // RUN:   | FileCheck -check-prefix=LINK_LINUX_MUSL_THREADS %s
 // LINK_LINUX_MUSL_THREADS: wasm-ld{{.*}}" "-m" "wasm32"{{.*}} "-L/foo/usr/lib/wasm32-linux-musl"
 // LINK_LINUX_MUSL_THREADS-SAME: "-pie"
-// LINK_LINUX_MUSL_THREADS-SAME: "--shared-memory" "--import-memory" "--max-memory=4294967296" "--export-memory" "-lpthread" "-lc" "{{.*[/\\]}}wasm32-unknown-linux-musl{{[/\\]}}libclang_rt.builtins.a" "--as-needed" "-lunwind" "--no-as-needed"
+// LINK_LINUX_MUSL_THREADS-SAME: "--shared-memory" "--import-memory" "--max-memory=4294967296" "--export-memory" "--export-if-defined=__tls_base" "-lpthread" "-lc" "{{.*[/\\]}}wasm32-unknown-linux-musl{{[/\\]}}libclang_rt.builtins.a" "--as-needed" "-lunwind" "--no-as-needed"
 // LINK_LINUX_MUSL_THREADS-NOT: wasm32-linux-musl-threads
+
+// A threaded executable, static or PIE, exports __tls_base, the global that
+// differs between its threads, by name; a shared library does not.
+
+// RUN: %clang -### --target=wasm32-unknown-linux-musl --sysroot=/foo -pthread -static %s 2>&1 \
+// RUN:   | FileCheck -check-prefix=LINK_LINUX_MUSL_THREADS_STATIC %s
+// LINK_LINUX_MUSL_THREADS_STATIC: wasm-ld{{.*}}" {{.*}} "--shared-memory" "--import-memory" "--max-memory=4294967296" "--export-memory" "--export-if-defined=__tls_base" {{.*}}
+// RUN: %clang -### --target=wasm32-unknown-linux-musl --sysroot=/foo -pthread -shared %s 2>&1 \
+// RUN:   | FileCheck -check-prefix=LINK_LINUX_MUSL_THREADS_SHARED %s
+// LINK_LINUX_MUSL_THREADS_SHARED: wasm-ld{{.*}}" {{.*}} "--shared-memory"
+// LINK_LINUX_MUSL_THREADS_SHARED-NOT: __tls_base
+// RUN: %clang -### --target=wasm32-unknown-linux-musl --sysroot=/foo %s 2>&1 \
+// RUN:   | FileCheck -check-prefix=LINK_LINUX_MUSL_NO_THREADS %s
+// LINK_LINUX_MUSL_NO_THREADS-NOT: __tls_base
 
 // `-rdynamic` on `wasm32-unknown-linux-musl` exports symbols to the dynamic
 // linker.
